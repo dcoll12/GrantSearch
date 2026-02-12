@@ -456,6 +456,7 @@ class InstrumentlAPI:
 
     def get_all_projects(self, callback=None):
         all_projects = []
+        seen_ids = set()
         cursor = None
         page = 1
         while True:
@@ -465,7 +466,11 @@ class InstrumentlAPI:
             if not result:
                 break
             projects = result.get('projects', [])
-            all_projects.extend(projects)
+            for p in projects:
+                pid = p.get('id')
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    all_projects.append(p)
             meta = result.get('meta', {})
             if not meta.get('has_more', False):
                 break
@@ -508,6 +513,7 @@ class InstrumentlAPI:
 
     def get_all_grants(self, callback=None):
         all_grants = []
+        seen_ids = set()
         cursor = None
         page = 1
         while True:
@@ -517,7 +523,11 @@ class InstrumentlAPI:
             if not result:
                 break
             grants = result.get('grants', [])
-            all_grants.extend(grants)
+            for g in grants:
+                gid = g.get('id')
+                if gid not in seen_ids:
+                    seen_ids.add(gid)
+                    all_grants.append(g)
             meta = result.get('meta', {})
             if not meta.get('has_more', False):
                 break
@@ -528,6 +538,7 @@ class InstrumentlAPI:
 
     def get_all_saved_grants(self, project_id=None, callback=None):
         all_saved = []
+        seen_ids = set()
         cursor = None
         page = 1
         while True:
@@ -537,7 +548,11 @@ class InstrumentlAPI:
             if not result:
                 break
             saved = result.get('saved_grants', [])
-            all_saved.extend(saved)
+            for s in saved:
+                sid = s.get('id') or s.get('grant_id')
+                if sid not in seen_ids:
+                    seen_ids.add(sid)
+                    all_saved.append(s)
             meta = result.get('meta', {})
             if not meta.get('has_more', False):
                 break
