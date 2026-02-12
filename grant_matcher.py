@@ -458,6 +458,7 @@ class InstrumentlAPI:
         all_projects = []
         seen_ids = set()
         cursor = None
+        prev_cursor = None
         page = 1
         while True:
             if callback:
@@ -466,17 +467,27 @@ class InstrumentlAPI:
             if not result:
                 break
             projects = result.get('projects', [])
+            print(f"[DEBUG] Page {page}: got {len(projects)} projects, keys={list(result.keys())}")
+            if page == 1 and projects:
+                print(f"[DEBUG] First project keys: {list(projects[0].keys())}")
             for p in projects:
                 pid = p.get('id')
                 if pid not in seen_ids:
                     seen_ids.add(pid)
                     all_projects.append(p)
             meta = result.get('meta', {})
+            print(f"[DEBUG] Meta: {meta}")
             if not meta.get('has_more', False):
                 break
-            cursor = meta.get('cursor')
+            new_cursor = meta.get('cursor')
+            if new_cursor == prev_cursor:
+                print(f"[DEBUG] Cursor unchanged, stopping pagination")
+                break
+            prev_cursor = cursor
+            cursor = new_cursor
             page += 1
             time.sleep(0.25)
+        print(f"[DEBUG] Total unique projects: {len(all_projects)}")
         return all_projects
 
     def get_grants(self, page_size=50, cursor=None, is_saved=None, funder_id=None):
