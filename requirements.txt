@@ -1,0 +1,18 @@
+# Instrumentl Grant Matcher - Dependencies
+# Install with: pip install -r requirements.txt
+
+# HTTP Client (recommended for API calls)
+requests>=2.28.0
+
+# PDF Processing
+pdfplumber>=0.10.0
+pypdf>=3.0.0
+
+# Document Processing
+python-docx>=1.0.0
+python-pptx>=0.6.21
+openpyxl>=3.1.0
+pandas>=2.0.0
+
+# Note: tkinter is included with Python on most systems
+# If missing on Linux, install with: sudo apt-get install python3-tk
