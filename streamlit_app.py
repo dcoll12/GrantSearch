@@ -22,6 +22,8 @@ from core import (
     TFIDFMatcher,
     grant_matches_location,
     build_results_dataframe,
+    load_config,
+    save_config,
 )
 
 # ==============================================================================
@@ -55,24 +57,44 @@ for key, val in defaults.items():
 # SIDEBAR — API CREDENTIALS
 # ==============================================================================
 
+_saved_config = load_config()
+
 with st.sidebar:
     st.title("⚙️ API Credentials")
-    st.caption("Your keys are only held in memory for this session and never stored.")
+    st.caption("Credentials are saved locally to config.json and never sent anywhere except the Instrumentl API.")
 
     api_key_id = st.text_input(
         "API Key ID",
+        value=_saved_config.get("api_key_id", ""),
         type="password",
         placeholder="019c24d3-...",
         help="Found in your Instrumentl account settings",
     )
     api_private_key = st.text_input(
         "API Private Key",
+        value=_saved_config.get("api_private_key", ""),
         type="password",
         placeholder="instr-apikey-...",
         help="Found in your Instrumentl account settings",
     )
 
-    if st.button("🔌 Connect", use_container_width=True, type="primary"):
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        connect_clicked = st.button("🔌 Connect", use_container_width=True, type="primary")
+    with btn_col2:
+        save_clicked = st.button("💾 Save", use_container_width=True)
+
+    if save_clicked:
+        if not api_key_id or not api_private_key:
+            st.error("Enter both credentials before saving.")
+        else:
+            cfg = load_config()
+            cfg["api_key_id"] = api_key_id
+            cfg["api_private_key"] = api_private_key
+            save_config(cfg)
+            st.success("Saved!")
+
+    if connect_clicked:
         if not api_key_id or not api_private_key:
             st.error("Please enter both API credentials.")
         else:
