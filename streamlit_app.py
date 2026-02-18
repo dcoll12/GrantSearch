@@ -209,7 +209,8 @@ with tab_fetch:
         col1, col2 = st.columns([3, 1])
         with col1:
             project_options = ["-- All Projects --"] + [
-                p.get("name", p.get("id", "Unknown")) for p in st.session_state.projects
+                p.get("project_title") or f"Project {p.get('id', 'Unknown')}"
+                for p in st.session_state.projects
             ]
             selected_project_label = st.selectbox("Select a project", project_options)
 
@@ -230,7 +231,8 @@ with tab_fetch:
         selected_project_id = None
         if selected_project_label != "-- All Projects --":
             for p in st.session_state.projects:
-                if p.get("name") == selected_project_label or p.get("id") == selected_project_label:
+                label = p.get("project_title") or f"Project {p.get('id', 'Unknown')}"
+                if label == selected_project_label:
                     selected_project_id = p.get("id")
                     break
 
