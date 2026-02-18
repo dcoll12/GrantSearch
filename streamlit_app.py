@@ -124,6 +124,12 @@ with st.sidebar:
     st.caption(f"Grants fetched: {len(st.session_state.grants_data)}")
     st.caption(f"Match results: {len(st.session_state.match_results)}")
 
+    if st.button("🔄 Reset Session", use_container_width=True):
+        st.session_state.uploaded_docs = []
+        st.session_state.grants_data = []
+        st.session_state.match_results = []
+        st.rerun()
+
 # ==============================================================================
 # MAIN HEADER
 # ==============================================================================
