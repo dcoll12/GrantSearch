@@ -565,7 +565,7 @@ with tab_results:
         dl1, dl2 = st.columns(2)
 
         with dl1:
-            csv_data = filtered.drop(columns=["Grant Name"]).to_csv(index=False).encode("utf-8")
+            csv_data = filtered.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Download CSV",
                 data=csv_data,
@@ -577,7 +577,7 @@ with tab_results:
         with dl2:
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                filtered.drop(columns=["Grant Name"]).to_excel(writer, index=False, sheet_name="Grant Matches")
+                filtered.to_excel(writer, index=False, sheet_name="Grant Matches")
             st.download_button(
                 label="⬇️ Download Excel",
                 data=buffer.getvalue(),
