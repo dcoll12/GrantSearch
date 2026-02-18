@@ -158,6 +158,11 @@ with tab_docs:
         type=["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "csv", "txt", "md"],
     )
 
+    if uploaded_files:
+        st.caption(f"{len(uploaded_files)} file(s) selected:")
+        for f in uploaded_files:
+            st.markdown(f"- {f.name}")
+
     col1, col2 = st.columns([1, 3])
     with col1:
         chunk_size = st.number_input(
