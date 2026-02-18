@@ -1005,7 +1005,7 @@ class GrantMatcherApp:
             self.project_combo_var.set("-- All Projects --")
             loaded_count = len(project_names) - 1  # subtract 1 for "-- All Projects --"
             self.status_var.set(f"✓ Loaded {loaded_count} projects")
-            messagebox.showinfo("Projects Loaded", f"Found {loaded_count} projects in your account")
+            messagebox.showinfo("Projects Loaded", f"{loaded_count} projects loaded")
         except Exception as e:
             self.status_var.set("✗ Error loading projects")
             messagebox.showerror("Error", f"Failed to fetch projects: {str(e)}")
