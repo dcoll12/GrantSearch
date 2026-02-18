@@ -191,6 +191,9 @@ with tab_docs:
             st.session_state.uploaded_docs = []
             st.rerun()
 
+        st.divider()
+        st.info("✅ Documents ready. Click the **☁️ 2. Fetch Grants** tab above to continue.")
+
 # ------------------------------------------------------------------------------
 # TAB 2 — FETCH GRANTS
 # ------------------------------------------------------------------------------
@@ -319,6 +322,9 @@ with tab_fetch:
                 st.session_state.grants_data = []
                 st.rerun()
 
+            st.divider()
+            st.info("✅ Grants fetched. Click the **🔍 3. Run Matching** tab above to continue.")
+
 # ------------------------------------------------------------------------------
 # TAB 3 — RUN MATCHING
 # ------------------------------------------------------------------------------
@@ -406,7 +412,8 @@ with tab_match:
                     st.error(str(e))
 
     if st.session_state.match_results:
-        st.success(f"✅ {len(st.session_state.match_results)} results ready — view them in the **Results Dashboard** tab.")
+        st.success(f"✅ {len(st.session_state.match_results)} results ready.")
+        st.info("Click the **📊 4. Results Dashboard** tab above to view your matches.")
 
 # ------------------------------------------------------------------------------
 # TAB 4 — RESULTS DASHBOARD
@@ -466,28 +473,24 @@ with tab_results:
         # ── Results table ─────────────────────────────────────────────────────
         st.subheader("Grant Matches")
 
-        # Make Grant Name a clickable link column
         display_df = filtered.copy()
-        display_df["Grant Name"] = display_df.apply(
-            lambda r: f'[{r["Grant Name"]}]({r["Grant URL"]})' if r["Grant URL"] else r["Grant Name"],
-            axis=1,
-        )
 
         st.dataframe(
             display_df[[
                 "Rank", "Score", "Grant Name", "Funder",
-                "Next Deadline", "Status", "Funding Cycle", "Description"
+                "Next Deadline", "Status", "Funding Cycle", "Grant URL", "Description"
             ]],
             use_container_width=True,
             hide_index=True,
             column_config={
                 "Rank": st.column_config.NumberColumn(width="small"),
                 "Score": st.column_config.NumberColumn(format="%.4f", width="small"),
-                "Grant Name": st.column_config.MarkdownColumn(width="large"),
+                "Grant Name": st.column_config.TextColumn(width="large"),
                 "Funder": st.column_config.TextColumn(width="medium"),
                 "Next Deadline": st.column_config.TextColumn(width="medium"),
                 "Status": st.column_config.TextColumn(width="small"),
                 "Funding Cycle": st.column_config.TextColumn(width="small"),
+                "Grant URL": st.column_config.LinkColumn("Link", width="small", display_text="Open ↗"),
                 "Description": st.column_config.TextColumn(width="large"),
             },
         )
