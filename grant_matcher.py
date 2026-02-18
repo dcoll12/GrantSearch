@@ -20,6 +20,7 @@ from datetime import datetime
 import re
 from collections import Counter
 import math
+import random
 
 # ==============================================================================
 # CONFIGURATION
@@ -32,7 +33,10 @@ DEFAULT_CONFIG = {
     "chunk_size": 500,
     "min_match_score": 0.1,
     "top_matches": 100,
-    "last_export_dir": ""
+    "last_export_dir": "",
+    "max_retries": 3,
+    "retry_base_delay": 1.0,
+    "retry_max_delay": 30.0
 }
 
 
@@ -317,14 +321,25 @@ class TFIDFMatcher:
 # INSTRUMENTL API CLIENT
 # ==============================================================================
 
+class RetryableAPIError(Exception):
+    """Raised for API errors that are safe to retry (429, 5xx, timeouts, connection errors)."""
+
+    def __init__(self, message, retry_after=None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class InstrumentlAPI:
     """Client for the Instrumentl API."""
 
     BASE_URL = "https://api.instrumentl.com"
 
-    def __init__(self, api_key_id, api_private_key):
+    def __init__(self, api_key_id, api_private_key, max_retries=3, retry_base_delay=1.0, retry_max_delay=30.0):
         self.api_key_id = api_key_id
         self.api_private_key = api_private_key
+        self.max_retries = max_retries
+        self.retry_base_delay = retry_base_delay
+        self.retry_max_delay = retry_max_delay
         self._session = None
         self._init_session()
 
@@ -344,16 +359,44 @@ class InstrumentlAPI:
 
     def _make_request(self, endpoint, params=None):
         url = f"{self.BASE_URL}{endpoint}"
-        if self._use_requests:
-            return self._make_request_with_requests(url, params)
-        else:
-            return self._make_request_with_urllib(url, params)
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                if self._use_requests:
+                    return self._make_request_with_requests(url, params)
+                else:
+                    return self._make_request_with_urllib(url, params)
+            except RetryableAPIError as e:
+                last_error = e
+                if attempt >= self.max_retries:
+                    break
+                if e.retry_after is not None:
+                    delay = min(e.retry_after, self.retry_max_delay)
+                else:
+                    delay = min(
+                        self.retry_base_delay * (2 ** attempt) + random.uniform(0, 1),
+                        self.retry_max_delay
+                    )
+                print(f"Retry {attempt + 1}/{self.max_retries} after {delay:.1f}s: {e}")
+                time.sleep(delay)
+        raise Exception(f"{last_error} (after {self.max_retries} retries)")
 
     def _make_request_with_requests(self, url, params=None):
         import requests
         try:
             response = self._session.get(url, params=params, timeout=30)
-            if response.status_code == 403:
+            if response.status_code == 429:
+                retry_after = response.headers.get('Retry-After')
+                retry_delay = float(retry_after) if retry_after else None
+                raise RetryableAPIError(
+                    f"API Error 429: Rate limited.",
+                    retry_after=retry_delay
+                )
+            elif response.status_code >= 500:
+                raise RetryableAPIError(
+                    f"API Error {response.status_code}: Server error."
+                )
+            elif response.status_code == 403:
                 raise Exception("API Error 403: Access denied.")
             elif response.status_code == 402:
                 raise Exception("API Error 402: No active API subscription.")
@@ -367,12 +410,13 @@ class InstrumentlAPI:
             error_text = e.response.text if e.response else str(e)
             raise Exception(f"API Error: {error_text}")
         except requests.exceptions.ConnectionError:
-            raise Exception("Connection Error: Could not connect to Instrumentl API.")
+            raise RetryableAPIError("Connection Error: Could not connect to Instrumentl API.")
         except requests.exceptions.Timeout:
-            raise Exception("Timeout Error: Request timed out.")
+            raise RetryableAPIError("Timeout Error: Request timed out.")
 
     def _make_request_with_urllib(self, url, params=None):
         import urllib.request
+        import urllib.error
         import urllib.parse
         import base64
         if params:
@@ -388,9 +432,18 @@ class InstrumentlAPI:
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None
+            if e.code == 429:
+                retry_after = e.headers.get('Retry-After') if hasattr(e, 'headers') else None
+                retry_delay = float(retry_after) if retry_after else None
+                raise RetryableAPIError(
+                    f"API Error 429: Rate limited.",
+                    retry_after=retry_delay
+                )
+            if e.code >= 500:
+                raise RetryableAPIError(f"API Error {e.code}: Server error.")
             raise Exception(f"API Error {e.code}")
         except urllib.error.URLError as e:
-            raise Exception(f"Connection Error: {str(e.reason)}")
+            raise RetryableAPIError(f"Connection Error: {str(e.reason)}")
 
     def get_account(self):
         return self._make_request("/v1/accounts/current")
@@ -403,7 +456,9 @@ class InstrumentlAPI:
 
     def get_all_projects(self, callback=None):
         all_projects = []
+        seen_ids = set()
         cursor = None
+        prev_cursor = None
         page = 1
         while True:
             if callback:
@@ -412,13 +467,27 @@ class InstrumentlAPI:
             if not result:
                 break
             projects = result.get('projects', [])
-            all_projects.extend(projects)
+            print(f"[DEBUG] Page {page}: got {len(projects)} projects, keys={list(result.keys())}")
+            if page == 1 and projects:
+                print(f"[DEBUG] First project keys: {list(projects[0].keys())}")
+            for p in projects:
+                pid = p.get('id')
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
+                    all_projects.append(p)
             meta = result.get('meta', {})
+            print(f"[DEBUG] Meta: {meta}")
             if not meta.get('has_more', False):
                 break
-            cursor = meta.get('cursor')
+            new_cursor = meta.get('cursor')
+            if new_cursor == prev_cursor:
+                print(f"[DEBUG] Cursor unchanged, stopping pagination")
+                break
+            prev_cursor = cursor
+            cursor = new_cursor
             page += 1
             time.sleep(0.25)
+        print(f"[DEBUG] Total unique projects: {len(all_projects)}")
         return all_projects
 
     def get_grants(self, page_size=50, cursor=None, is_saved=None, funder_id=None):
@@ -455,6 +524,7 @@ class InstrumentlAPI:
 
     def get_all_grants(self, callback=None):
         all_grants = []
+        seen_ids = set()
         cursor = None
         page = 1
         while True:
@@ -464,7 +534,11 @@ class InstrumentlAPI:
             if not result:
                 break
             grants = result.get('grants', [])
-            all_grants.extend(grants)
+            for g in grants:
+                gid = g.get('id')
+                if gid not in seen_ids:
+                    seen_ids.add(gid)
+                    all_grants.append(g)
             meta = result.get('meta', {})
             if not meta.get('has_more', False):
                 break
@@ -475,6 +549,7 @@ class InstrumentlAPI:
 
     def get_all_saved_grants(self, project_id=None, callback=None):
         all_saved = []
+        seen_ids = set()
         cursor = None
         page = 1
         while True:
@@ -484,7 +559,11 @@ class InstrumentlAPI:
             if not result:
                 break
             saved = result.get('saved_grants', [])
-            all_saved.extend(saved)
+            for s in saved:
+                sid = s.get('id') or s.get('grant_id')
+                if sid not in seen_ids:
+                    seen_ids.add(sid)
+                    all_saved.append(s)
             meta = result.get('meta', {})
             if not meta.get('has_more', False):
                 break
@@ -939,7 +1018,12 @@ class GrantMatcherApp:
         self.connection_status_var.set("Testing connection...")
         self.root.update()
         try:
-            client = InstrumentlAPI(api_key_id, api_private_key)
+            client = InstrumentlAPI(
+                api_key_id, api_private_key,
+                max_retries=self.config.get('max_retries', 3),
+                retry_base_delay=self.config.get('retry_base_delay', 1.0),
+                retry_max_delay=self.config.get('retry_max_delay', 30.0),
+            )
             account = client.get_account()
             org_name = account.get('organization_name', 'Unknown')
             self.connection_status_var.set(f"✓ Connected successfully! Organization: {org_name}")
@@ -966,7 +1050,12 @@ class GrantMatcherApp:
         self.root.update()
 
         try:
-            client = InstrumentlAPI(api_key_id, api_private_key)
+            client = InstrumentlAPI(
+                api_key_id, api_private_key,
+                max_retries=self.config.get('max_retries', 3),
+                retry_base_delay=self.config.get('retry_base_delay', 1.0),
+                retry_max_delay=self.config.get('retry_max_delay', 30.0),
+            )
             projects = client.get_all_projects()
 
             self.projects_list = projects
@@ -1059,7 +1148,12 @@ class GrantMatcherApp:
             try:
                 self.fetch_progress.start()
                 self.status_var.set("⏳ Fetching grants...")
-                client = InstrumentlAPI(api_key_id, api_private_key)
+                client = InstrumentlAPI(
+                    api_key_id, api_private_key,
+                    max_retries=self.config.get('max_retries', 3),
+                    retry_base_delay=self.config.get('retry_base_delay', 1.0),
+                    retry_max_delay=self.config.get('retry_max_delay', 30.0),
+                )
                 all_grants = []
 
                 if self.fetch_saved_var.get():
