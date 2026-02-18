@@ -578,31 +578,8 @@ class GrantMatcherApp:
         style.configure('TCombobox', font=('Segoe UI', 10), padding=(8, 6))
 
     def create_wizard(self):
-        # Create main container with scrollbar
-        self.canvas = tk.Canvas(self.root, bg=self.COLORS['background'], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas, padding="20")
-
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-
-        self.canvas_frame = self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-
-        # Bind canvas resize to update window width
-        self.canvas.bind('<Configure>', self._on_canvas_configure)
-
-        # Bind mousewheel for scrolling
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind_all("<Button-4>", self._on_mousewheel)  # Linux scroll up
-        self.canvas.bind_all("<Button-5>", self._on_mousewheel)  # Linux scroll down
-
-        self.canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-
-        self.main_frame = self.scrollable_frame
+        self.main_frame = ttk.Frame(self.root, padding="20")
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Header
         header_frame = ttk.Frame(self.main_frame)
@@ -619,7 +596,23 @@ class GrantMatcherApp:
 
         ttk.Separator(self.main_frame, orient='horizontal').pack(fill=tk.X, pady=(0, 15))
 
-        # Notebook
+        # Navigation buttons (packed bottom first so they stay visible)
+        nav_frame = ttk.Frame(self.main_frame)
+        nav_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+
+        self.prev_btn = ttk.Button(nav_frame, text="◀ Previous", command=self.previous_tab, style='Secondary.TButton')
+        self.prev_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        self.next_btn = ttk.Button(nav_frame, text="Next ▶", command=self.next_tab, style='Primary.TButton')
+        self.next_btn.pack(side=tk.RIGHT)
+
+        # Status bar (packed bottom before notebook)
+        status_frame = ttk.Frame(self.main_frame)
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        self.status_var = tk.StringVar(value="✓ Ready")
+        ttk.Label(status_frame, textvariable=self.status_var, style='Status.TLabel').pack(fill=tk.X)
+
+        # Notebook (fills remaining space between header and bottom buttons)
         self.notebook = ttk.Notebook(self.main_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
@@ -628,22 +621,6 @@ class GrantMatcherApp:
         self.create_fetch_tab()
         self.create_match_tab()
         self.create_results_tab()
-
-        # Status bar
-        status_frame = ttk.Frame(self.main_frame)
-        status_frame.pack(fill=tk.X, pady=(10, 0))
-        self.status_var = tk.StringVar(value="✓ Ready")
-        ttk.Label(status_frame, textvariable=self.status_var, style='Status.TLabel').pack(fill=tk.X)
-
-        # Navigation buttons
-        nav_frame = ttk.Frame(self.main_frame)
-        nav_frame.pack(fill=tk.X, pady=(10, 0))
-
-        self.prev_btn = ttk.Button(nav_frame, text="◀ Previous", command=self.previous_tab, style='Secondary.TButton')
-        self.prev_btn.pack(side=tk.LEFT, padx=(0, 10))
-
-        self.next_btn = ttk.Button(nav_frame, text="Next ▶", command=self.next_tab, style='Primary.TButton')
-        self.next_btn.pack(side=tk.RIGHT)
 
         # Update button states based on current tab
         self.notebook.bind("<<NotebookTabChanged>>", self.update_nav_buttons)

@@ -1,0 +1,15 @@
+[theme]
+primaryColor = "#6366f1"
+backgroundColor = "#f8fafc"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1e293b"
+font = "sans serif"
+
+[server]
+# Streamlit Cloud handles these automatically.
+# For local development: streamlit run streamlit_app.py
+headless = true
+enableCORS = false
+
+[browser]
+gatherUsageStats = false

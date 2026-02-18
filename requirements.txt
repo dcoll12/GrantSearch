@@ -14,5 +14,9 @@ python-pptx>=0.6.21
 openpyxl>=3.1.0
 pandas>=2.0.0
 
-# Note: tkinter is included with Python on most systems
+# Web Interface (Streamlit app)
+streamlit>=1.32.0
+plotly>=5.18.0
+
+# Note: tkinter is included with Python on most systems (desktop app only)
 # If missing on Linux, install with: sudo apt-get install python3-tk
