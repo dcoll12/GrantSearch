@@ -59,6 +59,9 @@ AUTO_SCROLL = True
 # Number of scrolls to perform
 MAX_SCROLLS = 10
 
+# Print every button found on the page to help diagnose selector issues
+DEBUG_MODE = False
+
 # ==============================================================================
 # SCRIPT
 # ==============================================================================
@@ -227,36 +230,60 @@ class InstrumentlAutoSaver:
         self.driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(random.uniform(0.8, 1.5))
         
+    def _debug_dump_buttons(self):
+        """Print all visible buttons on the page to help identify the right selector."""
+        all_buttons = self.driver.find_elements(By.XPATH, "//button | //a[@role='button']")
+        print(f"\n[DEBUG] {len(all_buttons)} button/role=button elements found on page:")
+        for i, b in enumerate(all_buttons[:60], 1):
+            try:
+                text = (b.text or b.get_attribute("aria-label") or b.get_attribute("data-testid") or "").strip()
+                cls = (b.get_attribute("class") or "")[:60]
+                print(f"  [{i:02d}] text={text!r:30s}  class={cls}")
+            except Exception:
+                pass
+        print()
+
     def find_save_buttons(self):
-        """Find all 'Save' buttons on the page"""
-        # These selectors might need adjustment based on Instrumentl's actual HTML
-        # Common patterns to try:
-        
+        """Find all unsaved 'Save' buttons on the page."""
+        if DEBUG_MODE:
+            self._debug_dump_buttons()
+
+        # `contains(., 'Save')` checks the full string-value of the element,
+        # including text inside child <span> nodes — required for React apps.
+        # Selectors are tried in order; the first that returns results wins.
         possible_selectors = [
-            "//button[contains(text(), 'Save')]",
-            "//a[contains(text(), 'Save')]",
-            "//button[contains(@class, 'save')]",
+            # Text-based (handles <button>Save</button> AND <button><span>Save</span></button>)
+            "//button[contains(., 'Save') and not(contains(., 'Saved'))]",
+            "//a[contains(., 'Save') and not(contains(., 'Saved'))]",
+            # Attribute-based
+            "//button[contains(@aria-label, 'Save') and not(contains(@aria-label, 'Saved'))]",
             "//button[@data-action='save']",
-            "//button[@aria-label='Save']",
+            "//button[contains(@data-testid, 'save') and not(contains(@data-testid, 'saved'))]",
+            # Class-based
+            "//button[contains(@class, 'save') and not(contains(@class, 'saved'))]",
             "//div[contains(@class, 'save-button')]//button",
+            "//div[contains(@class, 'save-grant')]//button",
         ]
-        
+
         buttons = []
         for selector in possible_selectors:
             try:
                 found = self.driver.find_elements(By.XPATH, selector)
+                # Filter out any stale or hidden elements
+                found = [b for b in found if b.is_displayed()]
                 if found:
-                    print(f"✓ Found {len(found)} buttons with selector: {selector[:50]}...")
+                    print(f"✓ Found {len(found)} buttons with selector: {selector[:70]}...")
                     buttons = found
                     break
-            except:
+            except Exception:
                 continue
-        
+
         if not buttons:
-            print("⚠️  No save buttons found. The page structure may have changed.")
-            print("   Opening browser for manual inspection...")
-            input("Press ENTER to continue...")
-            
+            print("⚠️  No save buttons found.")
+            print("   Tip: Set DEBUG_MODE = True in config and re-run to see all buttons on the page.")
+            print("   Opening browser for manual inspection — press ENTER when ready...")
+            input()
+
         return buttons
     
     def is_already_saved(self, button):
@@ -302,57 +329,83 @@ class InstrumentlAutoSaver:
     
     def save_matches(self):
         """Main function to save all matches"""
+        from selenium.common.exceptions import StaleElementReferenceException
+
         print("\n" + "="*60)
         print("🎯 STARTING AUTO-SAVE")
         print("="*60 + "\n")
-        
+
         # Scroll to load more matches
         self.scroll_to_load_more()
-        
-        # Find all save buttons
+
+        # Initial button count for the user summary
         print("\n🔍 Looking for save buttons...")
-        save_buttons = self.find_save_buttons()
-        
-        if not save_buttons:
+        initial_buttons = self.find_save_buttons()
+
+        if not initial_buttons:
             print("\n❌ No save buttons found. Exiting.")
             return
-        
-        total_found = len(save_buttons)
+
+        total_found = len(initial_buttons)
         to_save = self.max_saves if self.max_saves else total_found
-        
+
         print(f"\n📊 Found {total_found} matches")
         print(f"   Will save: {min(to_save, total_found)} matches")
         print(f"   Delay between saves: {self.delay_min}–{self.delay_max}s (randomized)\n")
-        
+
         input("Press ENTER to start saving (or Ctrl+C to cancel)...")
         print()
-        
-        # Save each match
-        for idx, button in enumerate(save_buttons[:to_save], 1):
+
+        attempts = 0
+        consecutive_skips = 0
+
+        while self.saved_count < to_save:
             try:
-                # Check if already saved
+                # Re-fetch every iteration — React re-renders make old references stale
+                buttons = self.find_save_buttons()
+                if not buttons:
+                    print("   No more save buttons found on page.")
+                    break
+
+                button = buttons[0]
+                attempts += 1
+                idx_label = f"[{self.saved_count + 1}/{to_save}]"
+
                 if self.is_already_saved(button):
-                    print(f"[{idx}/{to_save}] ⏭️  Already saved, skipping...")
+                    consecutive_skips += 1
+                    print(f"{idx_label} ⏭️  Already saved, skipping...")
+                    if consecutive_skips >= 5:
+                        print("   5 consecutive already-saved items — assuming all done.")
+                        break
+                    time.sleep(random.uniform(0.5, 1.0))
                     continue
-                
-                # Click save
-                print(f"[{idx}/{to_save}] 💾 Saving match...", end='')
-                
+
+                consecutive_skips = 0
+                print(f"{idx_label} 💾 Saving match...", end='', flush=True)
+
                 if self.click_save_button(button):
                     self.saved_count += 1
                     print(f" ✓ Saved! (Total: {self.saved_count})")
+                    # Brief pause for the DOM to register the state change
+                    time.sleep(random.uniform(0.4, 0.8))
                 else:
                     print(f" ✗ Failed")
-                
-                # Wait between saves (randomized to reduce rate-limit risk)
-                if idx < to_save:
+
+                if self.saved_count < to_save:
                     self._random_delay()
-                    
+
             except KeyboardInterrupt:
                 print("\n\n⚠️  Interrupted by user")
                 break
+            except StaleElementReferenceException:
+                print("   (stale element, retrying...)")
+                time.sleep(0.5)
+                continue
             except Exception as e:
-                print(f"\n⚠️  Error on match {idx}: {e}")
+                print(f"\n⚠️  Unexpected error (attempt {attempts}): {e}")
+                if attempts > to_save + 10:
+                    print("   Too many errors, stopping.")
+                    break
                 continue
         
         print("\n" + "="*60)
