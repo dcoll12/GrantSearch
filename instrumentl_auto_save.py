@@ -20,6 +20,7 @@ USAGE:
 """
 
 import time
+import random
 import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -39,8 +40,10 @@ PROJECT_URL = "https://www.instrumentl.com/projects/336006#/matches"
 # How many matches to save (set to None to save ALL visible matches)
 MAX_MATCHES_TO_SAVE = None  # or set a number like 50, 100, etc.
 
-# Delay between saves (seconds) - don't set too low or you'll get rate limited
-DELAY_BETWEEN_SAVES = 10
+# Random delay range between saves (seconds) - keeps behavior less predictable
+# Min should not be set too low or you'll get rate limited
+DELAY_MIN = 7
+DELAY_MAX = 15
 
 # Wait time for page loads (seconds)
 PAGE_LOAD_TIMEOUT = 10
@@ -56,12 +59,21 @@ MAX_SCROLLS = 10
 # ==============================================================================
 
 class InstrumentlAutoSaver:
-    def __init__(self, project_url, max_saves=None, delay=2):
+    def __init__(self, project_url, max_saves=None, delay_min=7, delay_max=15):
         self.project_url = project_url
         self.max_saves = max_saves
-        self.delay = delay
+        self.delay_min = delay_min
+        self.delay_max = delay_max
         self.saved_count = 0
         self.driver = None
+
+    def _random_delay(self, min_override=None, max_override=None):
+        """Sleep for a random duration within the configured range."""
+        lo = min_override if min_override is not None else self.delay_min
+        hi = max_override if max_override is not None else self.delay_max
+        duration = random.uniform(lo, hi)
+        print(f"   (waiting {duration:.1f}s...)")
+        time.sleep(duration)
         
     def setup_driver(self):
         """Initialize Chrome driver"""
@@ -115,22 +127,22 @@ class InstrumentlAutoSaver:
         while scrolls < MAX_SCROLLS:
             # Scroll down
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            
+            time.sleep(random.uniform(1.5, 3.0))
+
             # Calculate new scroll height
             new_height = self.driver.execute_script("return document.body.scrollHeight")
-            
+
             if new_height == last_height:
                 print(f"   Reached end after {scrolls} scrolls")
                 break
-                
+
             last_height = new_height
             scrolls += 1
             print(f"   Scroll {scrolls}/{MAX_SCROLLS}")
-        
+
         # Scroll back to top
         self.driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(1)
+        time.sleep(random.uniform(0.8, 1.5))
         
     def find_save_buttons(self):
         """Find all 'Save' buttons on the page"""
@@ -191,7 +203,7 @@ class InstrumentlAutoSaver:
         try:
             # Scroll button into view
             self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", button)
-            time.sleep(0.5)
+            time.sleep(random.uniform(0.3, 0.9))
             
             # Try regular click
             try:
@@ -227,7 +239,7 @@ class InstrumentlAutoSaver:
         
         print(f"\n📊 Found {total_found} matches")
         print(f"   Will save: {min(to_save, total_found)} matches")
-        print(f"   Delay between saves: {self.delay}s\n")
+        print(f"   Delay between saves: {self.delay_min}–{self.delay_max}s (randomized)\n")
         
         input("Press ENTER to start saving (or Ctrl+C to cancel)...")
         print()
@@ -249,9 +261,9 @@ class InstrumentlAutoSaver:
                 else:
                     print(f" ✗ Failed")
                 
-                # Wait between saves (rate limiting)
+                # Wait between saves (randomized to reduce rate-limit risk)
                 if idx < to_save:
-                    time.sleep(self.delay)
+                    self._random_delay()
                     
             except KeyboardInterrupt:
                 print("\n\n⚠️  Interrupted by user")
@@ -303,7 +315,7 @@ def main():
     print(f"\n📋 Configuration:")
     print(f"   Project URL: {PROJECT_URL}")
     print(f"   Max saves: {MAX_MATCHES_TO_SAVE if MAX_MATCHES_TO_SAVE else 'ALL'}")
-    print(f"   Delay: {DELAY_BETWEEN_SAVES}s")
+    print(f"   Delay range: {DELAY_MIN}–{DELAY_MAX}s (randomized)")
     print(f"   Auto-scroll: {AUTO_SCROLL}")
     
     print("\n⚠️  IMPORTANT:")
@@ -321,7 +333,8 @@ def main():
     saver = InstrumentlAutoSaver(
         project_url=PROJECT_URL,
         max_saves=MAX_MATCHES_TO_SAVE,
-        delay=DELAY_BETWEEN_SAVES
+        delay_min=DELAY_MIN,
+        delay_max=DELAY_MAX
     )
     
     saver.run()
