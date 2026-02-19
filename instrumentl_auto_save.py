@@ -34,8 +34,13 @@ from selenium.webdriver.chrome.options import Options
 # CONFIGURATION - UPDATE THESE VALUES
 # ==============================================================================
 
-# Your Instrumentl project URL
-PROJECT_URL = "https://www.instrumentl.com/projects/336006#/matches"
+# Known projects: { "Display Name": "https://www.instrumentl.com/projects/ID#/matches" }
+# Add as many entries as you like; the GUI dropdown will list them all.
+# You can also type a brand-new URL directly in the dropdown at runtime.
+PROJECTS = {
+    "My Project": "https://www.instrumentl.com/projects/336006#/matches",
+    # "Another Project": "https://www.instrumentl.com/projects/999999#/matches",
+}
 
 # How many matches to save (set to None to save ALL visible matches)
 MAX_MATCHES_TO_SAVE = None  # or set a number like 50, 100, etc.
@@ -57,6 +62,84 @@ MAX_SCROLLS = 10
 # ==============================================================================
 # SCRIPT
 # ==============================================================================
+
+def select_project_gui(projects: dict) -> str:
+    """
+    Show a tkinter dropdown so the user can pick (or type) a project URL.
+    Returns the URL string, or exits if the user cancels.
+    Falls back to a numbered terminal menu if tkinter is unavailable.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+    except ImportError:
+        # Headless / no display — fall back to terminal selection
+        return _select_project_terminal(projects)
+
+    result = {"url": None}
+
+    def on_confirm():
+        choice = combo.get().strip()
+        # Accept either a known project name or a raw URL typed by the user
+        result["url"] = projects.get(choice, choice)
+        root.destroy()
+
+    def on_cancel():
+        root.destroy()
+
+    root = tk.Tk()
+    root.title("Select Instrumentl Project")
+    root.resizable(False, False)
+    root.attributes("-topmost", True)
+
+    tk.Label(root, text="Select a project or paste a URL:", padx=14, pady=8).pack()
+
+    names = list(projects.keys())
+    combo = ttk.Combobox(root, values=names, width=54, state="normal")
+    if names:
+        combo.current(0)
+    combo.pack(padx=14, pady=4)
+
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(pady=10)
+    tk.Button(btn_frame, text="OK", width=10, command=on_confirm).pack(side=tk.LEFT, padx=6)
+    tk.Button(btn_frame, text="Cancel", width=10, command=on_cancel).pack(side=tk.LEFT, padx=6)
+
+    # Centre the window on screen
+    root.update_idletasks()
+    w, h = root.winfo_width(), root.winfo_height()
+    x = (root.winfo_screenwidth() - w) // 2
+    y = (root.winfo_screenheight() - h) // 2
+    root.geometry(f"+{x}+{y}")
+
+    root.mainloop()
+
+    if not result["url"]:
+        print("\n❌ No project selected. Exiting.")
+        sys.exit(0)
+
+    return result["url"]
+
+
+def _select_project_terminal(projects: dict) -> str:
+    """Numbered terminal fallback when tkinter is unavailable."""
+    names = list(projects.keys())
+    print("\nAvailable projects:")
+    for i, name in enumerate(names, 1):
+        print(f"  [{i}] {name}")
+    print(f"  [0] Enter a custom URL")
+
+    while True:
+        choice = input("\nSelect a project number: ").strip()
+        if choice == "0":
+            url = input("Paste project URL: ").strip()
+            if url:
+                return url
+        elif choice.isdigit() and 1 <= int(choice) <= len(names):
+            return projects[names[int(choice) - 1]]
+        else:
+            print("Invalid choice, try again.")
+
 
 class InstrumentlAutoSaver:
     def __init__(self, project_url, max_saves=None, delay_min=7, delay_max=15):
@@ -312,26 +395,30 @@ def main():
     ╚══════════════════════════════════════════════════════════╝
     """)
     
-    print(f"\n📋 Configuration:")
-    print(f"   Project URL: {PROJECT_URL}")
-    print(f"   Max saves: {MAX_MATCHES_TO_SAVE if MAX_MATCHES_TO_SAVE else 'ALL'}")
-    print(f"   Delay range: {DELAY_MIN}–{DELAY_MAX}s (randomized)")
-    print(f"   Auto-scroll: {AUTO_SCROLL}")
-    
     print("\n⚠️  IMPORTANT:")
     print("   • This script automates clicking 'Save' on matches")
     print("   • You must be logged in to Instrumentl")
     print("   • Use reasonable delays to avoid rate limiting")
     print("   • Your account could be banned for automation")
-    
+
     response = input("\nDo you want to continue? (yes/no): ").strip().lower()
-    
+
     if response != 'yes':
         print("\n❌ Cancelled by user")
         return
-    
+
+    # --- Project selection GUI ---
+    print("\n🖥️  Opening project selector...")
+    project_url = select_project_gui(PROJECTS)
+
+    print(f"\n📋 Configuration:")
+    print(f"   Project URL: {project_url}")
+    print(f"   Max saves: {MAX_MATCHES_TO_SAVE if MAX_MATCHES_TO_SAVE else 'ALL'}")
+    print(f"   Delay range: {DELAY_MIN}–{DELAY_MAX}s (randomized)")
+    print(f"   Auto-scroll: {AUTO_SCROLL}")
+
     saver = InstrumentlAutoSaver(
-        project_url=PROJECT_URL,
+        project_url=project_url,
         max_saves=MAX_MATCHES_TO_SAVE,
         delay_min=DELAY_MIN,
         delay_max=DELAY_MAX
