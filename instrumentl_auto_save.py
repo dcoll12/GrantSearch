@@ -154,57 +154,59 @@ class InstrumentlAutoSaver:
 
     def fetch_active_projects(self) -> dict:
         """
-        Navigate to instrumentl.com/projects, scrape all visible project
-        cards, and return only those that appear active (not archived /
-        deleted).  Returns {project_name: matches_url}.
+        Navigate to instrumentl.com/projects, click the 'Active' filter tab
+        if one exists, scrape visible project cards, and return only active
+        projects as {project_name: matches_url}.
         """
         print("\n📂 Fetching your active projects from Instrumentl...")
         self.driver.get("https://www.instrumentl.com/projects")
         time.sleep(random.uniform(2.5, 4.0))   # wait for SPA render
 
+        # Try to click an "Active" filter tab to exclude archived/deleted projects
+        clicked_filter = self.driver.execute_script(r"""
+        var candidates = document.querySelectorAll(
+            'button, a, [role="tab"], [role="button"], li, span'
+        );
+        for (var i = 0; i < candidates.length; i++) {
+            var el = candidates[i];
+            var txt = (el.textContent || '').trim().toLowerCase();
+            if (txt === 'active' || txt === 'active projects') {
+                el.click();
+                return txt;
+            }
+        }
+        return null;
+        """)
+        if clicked_filter:
+            print(f"   Clicked '{clicked_filter}' filter tab")
+            time.sleep(random.uniform(1.5, 2.5))   # wait for filter to apply
+
         raw = self.driver.execute_script(r"""
         var seen = {};
         var results = [];
 
-        // Keywords that indicate a project is archived / deleted
-        var BAD = ['archived', 'deleted', 'inactive', 'trash', 'removed'];
-
-        function isBad(el) {
-            for (var i = 0; i < 6; i++) {
-                if (!el) break;
-                var cls = (el.className || '').toLowerCase();
-                var txt = '';
-                // Only look at short badge-like text nodes, not whole card text
-                el.querySelectorAll('[class*="badge"],[class*="tag"],[class*="status"],[class*="label"]')
-                  .forEach(function(b){ txt += ' ' + b.textContent.toLowerCase(); });
-                for (var k = 0; k < BAD.length; k++) {
-                    if (cls.includes(BAD[k]) || txt.includes(BAD[k])) return true;
-                }
-                el = el.parentElement;
-            }
-            return false;
-        }
-
-        // Collect every link that matches /projects/<id>
         document.querySelectorAll('a[href*="/projects/"]').forEach(function(a) {
             var m = (a.getAttribute('href') || '').match(/\/projects\/(\d+)/);
             if (!m) return;
             var id = m[1];
             if (seen[id]) return;
 
-            if (isBad(a)) return;   // skip archived / deleted
-
-            // Try to get a human-readable name from the link text or nearby heading
+            // Walk up to the card container to get the project name
             var name = a.textContent.trim();
             if (!name || name.length < 2) {
-                var card = a.closest('[class*="card"],[class*="project"],[class*="item"],[class*="row"]');
+                var card = a.closest(
+                    '[class*="card"],[class*="project"],[class*="item"],[class*="row"],[class*="tile"]'
+                );
                 if (card) {
-                    var h = card.querySelector('h1,h2,h3,h4,h5,[class*="name"],[class*="title"]');
-                    name = h ? h.textContent.trim() : card.textContent.trim().substring(0, 60);
+                    var h = card.querySelector(
+                        'h1,h2,h3,h4,h5,[class*="name"],[class*="title"],[class*="heading"]'
+                    );
+                    name = h ? h.textContent.trim() : '';
                 }
             }
-            // Ignore generic/empty names and navigation labels
-            var skip = ['projects', 'view', 'open', 'edit', 'settings', 'delete', ''];
+
+            // Skip nav labels and empty names
+            var skip = ['projects', 'view', 'open', 'edit', 'settings', 'delete', 'new project', ''];
             if (!name || name.length > 120 || skip.indexOf(name.toLowerCase()) !== -1) return;
 
             seen[id] = true;
@@ -366,15 +368,26 @@ class InstrumentlAutoSaver:
             return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
         }
 
+        // Only check the element's own direct text nodes — NOT inherited text
+        // from descendants.  This prevents a grant card's "Saved by..." text
+        // from contaminating the check on the "Save" button inside it.
+        function ownText(el) {
+            var t = '';
+            el.childNodes.forEach(function(n) {
+                if (n.nodeType === 3) t += n.textContent;  // TEXT_NODE
+            });
+            return t.trim().toLowerCase();
+        }
+
         function looksLikeSave(el) {
-            var txt   = (el.textContent || '').trim().toLowerCase();
+            var own   = ownText(el);
             var aria  = (el.getAttribute('aria-label') || '').toLowerCase();
             var title = (el.getAttribute('title') || '').toLowerCase();
-            var combined = txt + ' ' + aria + ' ' + title;
-            // Must contain 'save' but NOT 'saved' / 'unsave'
-            return combined.includes('save') &&
-                   !combined.includes('saved') &&
-                   !combined.includes('unsave');
+            // The element signals "save" via its own text OR via aria/title
+            var hasSave = (own === 'save') || aria.includes('save') || title.includes('save');
+            // Must NOT already be in "saved" state
+            var isSaved = own.includes('saved') || aria.includes('saved') || title.includes('saved');
+            return hasSave && !isSaved;
         }
 
         var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
