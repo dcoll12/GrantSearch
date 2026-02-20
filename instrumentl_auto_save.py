@@ -37,14 +37,6 @@ from selenium.webdriver.chrome.options import Options
 # CONFIGURATION - UPDATE THESE VALUES
 # ==============================================================================
 
-# Known projects: { "Display Name": "https://www.instrumentl.com/projects/ID#/matches" }
-# Add as many entries as you like; the GUI dropdown will list them all.
-# You can also type a brand-new URL directly in the dropdown at runtime.
-PROJECTS = {
-    "My Project": "https://www.instrumentl.com/projects/336006#/matches",
-    # "Another Project": "https://www.instrumentl.com/projects/999999#/matches",
-}
-
 # How many matches to save (set to None to save ALL visible matches)
 MAX_MATCHES_TO_SAVE = None  # or set a number like 50, 100, etc.
 
@@ -148,13 +140,92 @@ def _select_project_terminal(projects: dict) -> str:
 
 
 class InstrumentlAutoSaver:
-    def __init__(self, project_url, max_saves=None, delay_min=7, delay_max=15):
-        self.project_url = project_url
+    def __init__(self, max_saves=None, delay_min=7, delay_max=15):
+        self.project_url = None   # set after user picks from GUI
         self.max_saves = max_saves
         self.delay_min = delay_min
         self.delay_max = delay_max
         self.saved_count = 0
         self.driver = None
+
+    # ------------------------------------------------------------------
+    # Project discovery — fetch live from Instrumentl after login
+    # ------------------------------------------------------------------
+
+    def fetch_active_projects(self) -> dict:
+        """
+        Navigate to instrumentl.com/projects, scrape all visible project
+        cards, and return only those that appear active (not archived /
+        deleted).  Returns {project_name: matches_url}.
+        """
+        print("\n📂 Fetching your active projects from Instrumentl...")
+        self.driver.get("https://www.instrumentl.com/projects")
+        time.sleep(random.uniform(2.5, 4.0))   # wait for SPA render
+
+        raw = self.driver.execute_script(r"""
+        var seen = {};
+        var results = [];
+
+        // Keywords that indicate a project is archived / deleted
+        var BAD = ['archived', 'deleted', 'inactive', 'trash', 'removed'];
+
+        function isBad(el) {
+            for (var i = 0; i < 6; i++) {
+                if (!el) break;
+                var cls = (el.className || '').toLowerCase();
+                var txt = '';
+                // Only look at short badge-like text nodes, not whole card text
+                el.querySelectorAll('[class*="badge"],[class*="tag"],[class*="status"],[class*="label"]')
+                  .forEach(function(b){ txt += ' ' + b.textContent.toLowerCase(); });
+                for (var k = 0; k < BAD.length; k++) {
+                    if (cls.includes(BAD[k]) || txt.includes(BAD[k])) return true;
+                }
+                el = el.parentElement;
+            }
+            return false;
+        }
+
+        // Collect every link that matches /projects/<id>
+        document.querySelectorAll('a[href*="/projects/"]').forEach(function(a) {
+            var m = (a.getAttribute('href') || '').match(/\/projects\/(\d+)/);
+            if (!m) return;
+            var id = m[1];
+            if (seen[id]) return;
+
+            if (isBad(a)) return;   // skip archived / deleted
+
+            // Try to get a human-readable name from the link text or nearby heading
+            var name = a.textContent.trim();
+            if (!name || name.length < 2) {
+                var card = a.closest('[class*="card"],[class*="project"],[class*="item"],[class*="row"]');
+                if (card) {
+                    var h = card.querySelector('h1,h2,h3,h4,h5,[class*="name"],[class*="title"]');
+                    name = h ? h.textContent.trim() : card.textContent.trim().substring(0, 60);
+                }
+            }
+            // Ignore generic/empty names and navigation labels
+            var skip = ['projects', 'view', 'open', 'edit', 'settings', 'delete', ''];
+            if (!name || name.length > 120 || skip.indexOf(name.toLowerCase()) !== -1) return;
+
+            seen[id] = true;
+            results.push({ name: name, id: id });
+        });
+
+        return results;
+        """)
+
+        projects = {}
+        for item in (raw or []):
+            name = item.get('name', '').strip()
+            pid  = item.get('id', '').strip()
+            if name and pid:
+                projects[name] = f"https://www.instrumentl.com/projects/{pid}#/matches"
+
+        if not projects:
+            print("   ⚠️  Could not auto-detect projects — check that you're logged in.")
+        else:
+            print(f"   Found {len(projects)} active project(s)")
+        return projects
 
     def _random_delay(self, min_override=None, max_override=None):
         """Sleep for a random duration within the configured range."""
@@ -231,23 +302,17 @@ class InstrumentlAutoSaver:
         """)
 
     def login_prompt(self):
-        """Navigate to project and wait for user to log in"""
+        """Open Instrumentl login page and wait for the user to log in."""
         print(f"\n📱 Opening Instrumentl...")
-        self.driver.get(self.project_url)
+        self.driver.get("https://www.instrumentl.com/users/sign_in")
 
         print("\n" + "="*60)
         print("🔐 PLEASE LOG IN TO INSTRUMENTL")
         print("="*60)
         print("\n1. Log in to your Instrumentl account in the browser")
-        print("2. Navigate to your project matches if not already there")
-        print("3. Press ENTER in this terminal when ready to start...\n")
+        print("2. Press ENTER here once you are fully logged in\n")
 
-        input("Press ENTER when logged in and ready: ")
-
-        # Install network interceptor after login so it survives any SPA redirects
-        print("   Installing network interceptor...")
-        self._install_network_interceptor()
-        print("\n✓ Starting auto-save process...\n")
+        input("Press ENTER when logged in: ")
         
     def scroll_to_load_more(self):
         """Scroll the page to trigger lazy loading of more matches"""
@@ -285,27 +350,55 @@ class InstrumentlAutoSaver:
 
     def _find_save_elements_js(self):
         """
-        Use JavaScript TreeWalker to find ANY visible element whose trimmed
-        text content is exactly 'Save' (case-insensitive).  Works regardless
-        of tag name — <button>, <a>, <div>, <span>, custom React component, etc.
-        Returns a list of Selenium WebElement references.
+        Find ANY visible element whose text / aria-label / title contains
+        'save' (but not 'saved' or 'unsave').  Intentionally permissive:
+        no tag-name or child-count restriction so React custom components
+        and icon-button wrappers are all included.
         """
         return self.driver.execute_script(r"""
+        var seen = new WeakSet();
         var results = [];
-        var walker = document.createTreeWalker(
-            document.body, NodeFilter.SHOW_ELEMENT, null
-        );
+
+        function isVisible(el) {
+            var r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) return false;
+            var s = window.getComputedStyle(el);
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+        }
+
+        function looksLikeSave(el) {
+            var txt   = (el.textContent || '').trim().toLowerCase();
+            var aria  = (el.getAttribute('aria-label') || '').toLowerCase();
+            var title = (el.getAttribute('title') || '').toLowerCase();
+            var combined = txt + ' ' + aria + ' ' + title;
+            // Must contain 'save' but NOT 'saved' / 'unsave'
+            return combined.includes('save') &&
+                   !combined.includes('saved') &&
+                   !combined.includes('unsave');
+        }
+
+        var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
         while (walker.nextNode()) {
             var el = walker.currentNode;
-            // Only look at "leaf-ish" elements (≤ 2 child elements)
-            if (el.querySelectorAll('*').length > 2) continue;
-            var txt = el.textContent.trim().toLowerCase();
-            if (txt !== 'save') continue;
-            // Must be visible
-            var r = el.getBoundingClientRect();
-            if (r.width === 0 || r.height === 0) continue;
-            if (el.offsetParent === null && window.getComputedStyle(el).position !== 'fixed') continue;
-            results.push(el);
+            if (seen.has(el)) continue;
+            if (!isVisible(el)) continue;
+            if (!looksLikeSave(el)) continue;
+
+            // Prefer the most specific clickable ancestor
+            var clickable = el;
+            var p = el.parentElement;
+            for (var i = 0; i < 3 && p; i++, p = p.parentElement) {
+                var tag = p.tagName;
+                var role = (p.getAttribute('role') || '').toLowerCase();
+                if (tag === 'BUTTON' || tag === 'A' || role === 'button') {
+                    clickable = p; break;
+                }
+            }
+
+            if (!seen.has(clickable)) {
+                seen.add(clickable);
+                results.push(clickable);
+            }
         }
         return results;
         """)
@@ -525,8 +618,9 @@ class InstrumentlAutoSaver:
                 failures += 1
                 print(f" ✗ Error: {e}")
                 if failures >= 5:
-                    print("   Too many consecutive failures, stopping DOM clicks.")
-                    break
+                    print("   Too many consecutive DOM failures — switching to network capture.")
+                    self._save_via_network_capture()
+                    return
                 time.sleep(1)
                 continue
 
@@ -612,15 +706,40 @@ class InstrumentlAutoSaver:
         print("="*60 + "\n")
         
     def run(self):
-        """Main execution flow"""
+        """Main execution flow."""
         try:
             self.setup_driver()
+
+            # Step 1 — log in
             self.login_prompt()
+
+            # Step 2 — fetch active projects and show GUI selector
+            projects = self.fetch_active_projects()
+            if not projects:
+                projects = {"(enter URL manually)": ""}
+            self.project_url = select_project_gui(projects)
+            if not self.project_url:
+                print("\n❌ No project selected. Exiting.")
+                return
+
+            # Step 3 — navigate to the chosen project and install interceptor
+            print(f"\n🌐 Navigating to project: {self.project_url}")
+            self.driver.get(self.project_url)
+            time.sleep(random.uniform(2.0, 3.5))
+            print("   Installing network interceptor...")
+            self._install_network_interceptor()
+            print(f"\n📋 Configuration:")
+            print(f"   Project URL : {self.project_url}")
+            print(f"   Max saves   : {self.max_saves or 'ALL'}")
+            print(f"   Delay range : {self.delay_min}–{self.delay_max}s (randomized)")
+            print(f"   Auto-scroll : {AUTO_SCROLL}\n")
+
+            # Step 4 — save
             self.save_matches()
-            
+
             print("\n✓ All done! Press ENTER to close browser...")
             input()
-            
+
         except KeyboardInterrupt:
             print("\n\n⚠️  Script interrupted by user")
         except Exception as e:
@@ -659,23 +778,12 @@ def main():
         print("\n❌ Cancelled by user")
         return
 
-    # --- Project selection GUI ---
-    print("\n🖥️  Opening project selector...")
-    project_url = select_project_gui(PROJECTS)
-
-    print(f"\n📋 Configuration:")
-    print(f"   Project URL: {project_url}")
-    print(f"   Max saves: {MAX_MATCHES_TO_SAVE if MAX_MATCHES_TO_SAVE else 'ALL'}")
-    print(f"   Delay range: {DELAY_MIN}–{DELAY_MAX}s (randomized)")
-    print(f"   Auto-scroll: {AUTO_SCROLL}")
-
     saver = InstrumentlAutoSaver(
-        project_url=project_url,
         max_saves=MAX_MATCHES_TO_SAVE,
         delay_min=DELAY_MIN,
         delay_max=DELAY_MAX
     )
-    
+
     saver.run()
 
 
