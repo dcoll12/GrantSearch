@@ -21,12 +21,15 @@ USAGE:
 
 import time
 import random
+import json
 import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import (
+    TimeoutException, NoSuchElementException, StaleElementReferenceException
+)
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
@@ -185,19 +188,65 @@ class InstrumentlAutoSaver:
         self.driver.maximize_window()
         self.wait = WebDriverWait(self.driver, PAGE_LOAD_TIMEOUT)
         
+    def _install_network_interceptor(self):
+        """Inject JS to monkey-patch fetch/XHR and record non-GET requests."""
+        self.driver.execute_script(r"""
+        window.__capturedRequests = [];
+
+        // --- patch fetch ---
+        const _origFetch = window.fetch;
+        window.fetch = function() {
+            var url = arguments[0];
+            var opts = arguments[1] || {};
+            var method = (opts.method || 'GET').toUpperCase();
+            if (method !== 'GET') {
+                window.__capturedRequests.push({
+                    type: 'fetch', url: (typeof url === 'string' ? url : url.url),
+                    method: method,
+                    body: opts.body || null,
+                    ts: Date.now()
+                });
+            }
+            return _origFetch.apply(this, arguments);
+        };
+
+        // --- patch XMLHttpRequest ---
+        const _origOpen = XMLHttpRequest.prototype.open;
+        const _origSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function(m, u) {
+            this.__m = m; this.__u = u;
+            return _origOpen.apply(this, arguments);
+        };
+        XMLHttpRequest.prototype.send = function(body) {
+            if (this.__m && this.__m.toUpperCase() !== 'GET') {
+                window.__capturedRequests.push({
+                    type: 'xhr', url: this.__u,
+                    method: this.__m,
+                    body: body,
+                    ts: Date.now()
+                });
+            }
+            return _origSend.apply(this, arguments);
+        };
+        """)
+
     def login_prompt(self):
         """Navigate to project and wait for user to log in"""
         print(f"\n📱 Opening Instrumentl...")
         self.driver.get(self.project_url)
-        
+
         print("\n" + "="*60)
         print("🔐 PLEASE LOG IN TO INSTRUMENTL")
         print("="*60)
         print("\n1. Log in to your Instrumentl account in the browser")
         print("2. Navigate to your project matches if not already there")
         print("3. Press ENTER in this terminal when ready to start...\n")
-        
+
         input("Press ENTER when logged in and ready: ")
+
+        # Install network interceptor after login so it survives any SPA redirects
+        print("   Installing network interceptor...")
+        self._install_network_interceptor()
         print("\n✓ Starting auto-save process...\n")
         
     def scroll_to_load_more(self):
@@ -230,107 +279,182 @@ class InstrumentlAutoSaver:
         self.driver.execute_script("window.scrollTo(0, 0);")
         time.sleep(random.uniform(0.8, 1.5))
         
-    def _debug_dump_buttons(self):
-        """Print all visible buttons on the page to help identify the right selector."""
-        all_buttons = self.driver.find_elements(By.XPATH, "//button | //a[@role='button']")
-        print(f"\n[DEBUG] {len(all_buttons)} button/role=button elements found on page:")
-        for i, b in enumerate(all_buttons[:60], 1):
-            try:
-                text = (b.text or b.get_attribute("aria-label") or b.get_attribute("data-testid") or "").strip()
-                cls = (b.get_attribute("class") or "")[:60]
-                print(f"  [{i:02d}] text={text!r:30s}  class={cls}")
-            except Exception:
-                pass
+    # ------------------------------------------------------------------
+    # Element discovery — JavaScript-based (handles React custom elements)
+    # ------------------------------------------------------------------
+
+    def _find_save_elements_js(self):
+        """
+        Use JavaScript TreeWalker to find ANY visible element whose trimmed
+        text content is exactly 'Save' (case-insensitive).  Works regardless
+        of tag name — <button>, <a>, <div>, <span>, custom React component, etc.
+        Returns a list of Selenium WebElement references.
+        """
+        return self.driver.execute_script(r"""
+        var results = [];
+        var walker = document.createTreeWalker(
+            document.body, NodeFilter.SHOW_ELEMENT, null
+        );
+        while (walker.nextNode()) {
+            var el = walker.currentNode;
+            // Only look at "leaf-ish" elements (≤ 2 child elements)
+            if (el.querySelectorAll('*').length > 2) continue;
+            var txt = el.textContent.trim().toLowerCase();
+            if (txt !== 'save') continue;
+            // Must be visible
+            var r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) continue;
+            if (el.offsetParent === null && window.getComputedStyle(el).position !== 'fixed') continue;
+            results.push(el);
+        }
+        return results;
+        """)
+
+    def _debug_dump_all_elements(self):
+        """Dump every visible clickable element and its text (debug helper)."""
+        data = self.driver.execute_script(r"""
+        var out = [];
+        var all = document.querySelectorAll(
+            'button, a, [role="button"], [onclick], [class*="save" i], [class*="Save"]'
+        );
+        for (var i = 0; i < Math.min(all.length, 80); i++) {
+            var el = all[i];
+            var r = el.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) continue;
+            out.push({
+                tag: el.tagName,
+                text: el.textContent.trim().substring(0, 50),
+                cls: (el.className || '').substring(0, 60),
+                aria: el.getAttribute('aria-label') || '',
+                href: el.getAttribute('href') || ''
+            });
+        }
+        return out;
+        """)
+        print(f"\n[DEBUG] {len(data)} clickable elements found on page:")
+        for i, d in enumerate(data, 1):
+            print(f"  [{i:02d}] <{d['tag']}> text={d['text']!r:40s} class={d['cls']}")
         print()
 
-    def find_save_buttons(self):
-        """Find all unsaved 'Save' buttons on the page."""
-        if DEBUG_MODE:
-            self._debug_dump_buttons()
+    # ------------------------------------------------------------------
+    # Network-capture approach (fallback when DOM clicking doesn't work)
+    # ------------------------------------------------------------------
 
-        # `contains(., 'Save')` checks the full string-value of the element,
-        # including text inside child <span> nodes — required for React apps.
-        # Selectors are tried in order; the first that returns results wins.
-        possible_selectors = [
-            # Text-based (handles <button>Save</button> AND <button><span>Save</span></button>)
-            "//button[contains(., 'Save') and not(contains(., 'Saved'))]",
-            "//a[contains(., 'Save') and not(contains(., 'Saved'))]",
-            # Attribute-based
-            "//button[contains(@aria-label, 'Save') and not(contains(@aria-label, 'Saved'))]",
-            "//button[@data-action='save']",
-            "//button[contains(@data-testid, 'save') and not(contains(@data-testid, 'saved'))]",
-            # Class-based
-            "//button[contains(@class, 'save') and not(contains(@class, 'saved'))]",
-            "//div[contains(@class, 'save-button')]//button",
-            "//div[contains(@class, 'save-grant')]//button",
-        ]
-
-        buttons = []
-        for selector in possible_selectors:
-            try:
-                found = self.driver.find_elements(By.XPATH, selector)
-                # Filter out any stale or hidden elements
-                found = [b for b in found if b.is_displayed()]
-                if found:
-                    print(f"✓ Found {len(found)} buttons with selector: {selector[:70]}...")
-                    buttons = found
-                    break
-            except Exception:
-                continue
-
-        if not buttons:
-            print("⚠️  No save buttons found.")
-            print("   Tip: Set DEBUG_MODE = True in config and re-run to see all buttons on the page.")
-            print("   Opening browser for manual inspection — press ENTER when ready...")
-            input()
-
-        return buttons
-    
-    def is_already_saved(self, button):
-        """Check if the grant is already saved"""
-        # Look for indicators that it's already saved
+    def _get_captured_requests(self):
+        """Return the list of non-GET requests captured by the JS interceptor."""
         try:
-            # Check button text
-            button_text = button.text.lower()
-            if 'saved' in button_text or 'unsave' in button_text or 'remove' in button_text:
-                return True
-            
-            # Check for 'saved' class or attribute
-            classes = button.get_attribute('class') or ''
-            if 'saved' in classes.lower():
-                return True
-                
-            # Check disabled state
-            if not button.is_enabled():
-                return True
-                
-            return False
-        except:
-            return False
-    
-    def click_save_button(self, button):
-        """Click a save button safely"""
-        try:
-            # Scroll button into view
-            self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", button)
-            time.sleep(random.uniform(0.3, 0.9))
-            
-            # Try regular click
-            try:
-                button.click()
-            except:
-                # Fallback to JavaScript click
-                self.driver.execute_script("arguments[0].click();", button)
-            
-            return True
-        except Exception as e:
-            print(f"   ⚠️  Error clicking button: {e}")
-            return False
-    
+            return self.driver.execute_script("return window.__capturedRequests || [];")
+        except Exception:
+            return []
+
+    def _clear_captured_requests(self):
+        self.driver.execute_script("window.__capturedRequests = [];")
+
+    def _capture_save_request(self):
+        """
+        Ask the user to manually save ONE grant, then return the captured
+        request that represents the save action.
+        """
+        self._clear_captured_requests()
+
+        print("\n" + "="*60)
+        print("🔎 LEARNING THE SAVE REQUEST")
+        print("="*60)
+        print("\n  Please click 'Save' on ONE grant in the browser now.")
+        print("  The script will capture the network request it triggers.\n")
+
+        input("  Press ENTER after you've saved one grant: ")
+
+        captured = self._get_captured_requests()
+        if not captured:
+            print("\n⚠️  No network requests were captured.")
+            print("   The page may have reloaded (which clears the interceptor).")
+            print("   Re-installing interceptor — try saving another grant.\n")
+            self._install_network_interceptor()
+            self._clear_captured_requests()
+            input("  Click Save on one grant, then press ENTER: ")
+            captured = self._get_captured_requests()
+
+        if not captured:
+            print("❌ Still no requests captured. Cannot proceed.")
+            return None
+
+        # Show captured requests and let user pick (or auto-pick the most likely)
+        print(f"\n   Captured {len(captured)} request(s):")
+        for i, req in enumerate(captured, 1):
+            print(f"   [{i}] {req.get('method','?')} {req.get('url','?')[:90]}")
+            if req.get('body'):
+                body_preview = str(req['body'])[:120]
+                print(f"       body: {body_preview}")
+
+        if len(captured) == 1:
+            chosen = captured[0]
+        else:
+            choice = input(f"\n   Which request is the save action? [1-{len(captured)}]: ").strip()
+            idx = int(choice) - 1 if choice.isdigit() else 0
+            chosen = captured[max(0, min(idx, len(captured) - 1))]
+
+        print(f"\n✓ Captured: {chosen['method']} {chosen['url']}")
+        return chosen
+
+    def _replay_save_request(self, template_req, grant_id, old_grant_id):
+        """
+        Replay a captured save request, swapping old_grant_id → grant_id
+        in the URL and body.  Runs inside the browser session (cookies intact).
+        Returns True on success (HTTP 2xx).
+        """
+        url = template_req['url'].replace(str(old_grant_id), str(grant_id))
+        body = template_req.get('body') or ''
+        if body:
+            body = body.replace(str(old_grant_id), str(grant_id))
+        method = template_req.get('method', 'POST')
+
+        status = self.driver.execute_script("""
+        var url = arguments[0], method = arguments[1], body = arguments[2];
+        var xhr = new XMLHttpRequest();
+        xhr.open(method, url, false);          // synchronous
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        try { xhr.send(body); } catch(e) { return -1; }
+        return xhr.status;
+        """, url, method, body if body else None)
+
+        return 200 <= (status or 0) < 300
+
+    # ------------------------------------------------------------------
+    # Grant-ID extraction
+    # ------------------------------------------------------------------
+
+    def _extract_grant_ids_from_page(self):
+        """
+        Scrape grant / funder IDs from the matches page.  Instrumentl
+        typically renders links like /grants/<id> or data attributes.
+        Returns a list of unique ID strings.
+        """
+        ids = self.driver.execute_script(r"""
+        var ids = new Set();
+        // Links containing /grants/ or /funders/
+        document.querySelectorAll('a[href*="/grants/"], a[href*="/funders/"]').forEach(function(a) {
+            var m = a.href.match(/\/(grants|funders)\/(\d+)/);
+            if (m) ids.add(m[2]);
+        });
+        // data-grant-id or data-id attributes
+        document.querySelectorAll('[data-grant-id], [data-id]').forEach(function(el) {
+            var v = el.getAttribute('data-grant-id') || el.getAttribute('data-id');
+            if (v) ids.add(v);
+        });
+        return Array.from(ids);
+        """)
+        return ids or []
+
+    # ------------------------------------------------------------------
+    # Main save orchestration
+    # ------------------------------------------------------------------
+
     def save_matches(self):
-        """Main function to save all matches"""
-        from selenium.common.exceptions import StaleElementReferenceException
-
+        """
+        Try DOM clicking first.  If no elements found, fall back to
+        network-capture + API-replay approach.
+        """
         print("\n" + "="*60)
         print("🎯 STARTING AUTO-SAVE")
         print("="*60 + "\n")
@@ -338,58 +462,54 @@ class InstrumentlAutoSaver:
         # Scroll to load more matches
         self.scroll_to_load_more()
 
-        # Initial button count for the user summary
-        print("\n🔍 Looking for save buttons...")
-        initial_buttons = self.find_save_buttons()
+        # ---------- Attempt 1: JS-based DOM click ----------
+        print("🔍 Scanning page for Save elements (deep JS scan)...")
+        if DEBUG_MODE:
+            self._debug_dump_all_elements()
 
-        if not initial_buttons:
-            print("\n❌ No save buttons found. Exiting.")
-            return
+        elements = self._find_save_elements_js()
 
-        total_found = len(initial_buttons)
-        to_save = self.max_saves if self.max_saves else total_found
+        if elements:
+            print(f"✓ Found {len(elements)} Save elements via JS scan")
+            self._save_via_dom_clicks(elements)
+        else:
+            print("⚠️  No Save elements found via DOM scan.")
+            print("   Switching to network-capture mode...\n")
+            self._save_via_network_capture()
 
-        print(f"\n📊 Found {total_found} matches")
-        print(f"   Will save: {min(to_save, total_found)} matches")
+    def _save_via_dom_clicks(self, initial_elements):
+        """Click Save elements found by JS scan, re-fetching each iteration."""
+        to_save = self.max_saves if self.max_saves else len(initial_elements)
+
+        print(f"\n📊 Will save up to {to_save} matches")
         print(f"   Delay between saves: {self.delay_min}–{self.delay_max}s (randomized)\n")
-
         input("Press ENTER to start saving (or Ctrl+C to cancel)...")
         print()
 
-        attempts = 0
-        consecutive_skips = 0
+        failures = 0
 
         while self.saved_count < to_save:
             try:
-                # Re-fetch every iteration — React re-renders make old references stale
-                buttons = self.find_save_buttons()
-                if not buttons:
-                    print("   No more save buttons found on page.")
+                elements = self._find_save_elements_js()
+                if not elements:
+                    print("   No more Save elements on page.")
                     break
 
-                button = buttons[0]
-                attempts += 1
-                idx_label = f"[{self.saved_count + 1}/{to_save}]"
+                el = elements[0]
+                idx = f"[{self.saved_count + 1}/{to_save}]"
+                print(f"{idx} 💾 Saving match...", end='', flush=True)
 
-                if self.is_already_saved(button):
-                    consecutive_skips += 1
-                    print(f"{idx_label} ⏭️  Already saved, skipping...")
-                    if consecutive_skips >= 5:
-                        print("   5 consecutive already-saved items — assuming all done.")
-                        break
-                    time.sleep(random.uniform(0.5, 1.0))
-                    continue
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({behavior:'smooth',block:'center'});", el)
+                time.sleep(random.uniform(0.3, 0.8))
 
-                consecutive_skips = 0
-                print(f"{idx_label} 💾 Saving match...", end='', flush=True)
+                # Click via JS (most reliable across React portals)
+                self.driver.execute_script("arguments[0].click();", el)
+                self.saved_count += 1
+                failures = 0
+                print(f" ✓ Saved! (Total: {self.saved_count})")
 
-                if self.click_save_button(button):
-                    self.saved_count += 1
-                    print(f" ✓ Saved! (Total: {self.saved_count})")
-                    # Brief pause for the DOM to register the state change
-                    time.sleep(random.uniform(0.4, 0.8))
-                else:
-                    print(f" ✗ Failed")
+                time.sleep(random.uniform(0.4, 0.8))
 
                 if self.saved_count < to_save:
                     self._random_delay()
@@ -398,16 +518,95 @@ class InstrumentlAutoSaver:
                 print("\n\n⚠️  Interrupted by user")
                 break
             except StaleElementReferenceException:
-                print("   (stale element, retrying...)")
+                print(" (stale, retrying...)")
                 time.sleep(0.5)
                 continue
             except Exception as e:
-                print(f"\n⚠️  Unexpected error (attempt {attempts}): {e}")
-                if attempts > to_save + 10:
-                    print("   Too many errors, stopping.")
+                failures += 1
+                print(f" ✗ Error: {e}")
+                if failures >= 5:
+                    print("   Too many consecutive failures, stopping DOM clicks.")
                     break
+                time.sleep(1)
                 continue
-        
+
+        self._print_summary()
+
+    def _save_via_network_capture(self):
+        """
+        Fallback: ask user to save one grant manually, capture the HTTP
+        request, extract all grant IDs, then replay for each.
+        """
+        template = self._capture_save_request()
+        if not template:
+            return
+
+        # Try to figure out the grant ID used in the captured request
+        body_str = template.get('body') or template.get('url', '')
+        url_str = template.get('url', '')
+        combined = url_str + ' ' + str(body_str)
+
+        import re
+        # Look for numeric IDs in the URL/body
+        id_candidates = re.findall(r'\b(\d{4,})\b', combined)
+        if not id_candidates:
+            print("⚠️  Could not extract a grant ID from the captured request.")
+            print(f"   URL:  {url_str}")
+            print(f"   Body: {str(body_str)[:200]}")
+            manual_id = input("   Enter the grant ID you just saved: ").strip()
+            id_candidates = [manual_id] if manual_id else []
+
+        if not id_candidates:
+            print("❌ No grant ID to work with. Exiting.")
+            return
+
+        saved_id = id_candidates[0]
+        print(f"   Saved grant ID from capture: {saved_id}")
+
+        # Get all grant IDs on the page
+        all_ids = self._extract_grant_ids_from_page()
+        print(f"   Found {len(all_ids)} grant/funder IDs on page")
+
+        # Remove the already-saved one
+        remaining = [gid for gid in all_ids if gid != saved_id]
+        if not remaining:
+            print("⚠️  No additional grant IDs found. The page might load them dynamically.")
+            print("   Try scrolling down first and re-running.")
+            return
+
+        to_save = self.max_saves if self.max_saves else len(remaining)
+        remaining = remaining[:to_save]
+
+        print(f"\n📊 Will replay save for {len(remaining)} grants")
+        print(f"   Delay between saves: {self.delay_min}–{self.delay_max}s (randomized)\n")
+        input("Press ENTER to start (or Ctrl+C to cancel)...")
+        print()
+
+        for i, gid in enumerate(remaining, 1):
+            try:
+                idx = f"[{i}/{len(remaining)}]"
+                print(f"{idx} 💾 Saving grant {gid}...", end='', flush=True)
+
+                ok = self._replay_save_request(template, gid, saved_id)
+                if ok:
+                    self.saved_count += 1
+                    print(f" ✓ (Total: {self.saved_count})")
+                else:
+                    print(f" ✗ request failed")
+
+                if i < len(remaining):
+                    self._random_delay()
+
+            except KeyboardInterrupt:
+                print("\n\n⚠️  Interrupted by user")
+                break
+            except Exception as e:
+                print(f" ✗ Error: {e}")
+                continue
+
+        self._print_summary()
+
+    def _print_summary(self):
         print("\n" + "="*60)
         print(f"✅ COMPLETE - Saved {self.saved_count} matches")
         print("="*60 + "\n")
