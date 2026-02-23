@@ -930,9 +930,6 @@ class GrantMatcherApp:
         ttk.Checkbutton(options_frame,
                         text="Fetch Grant Matches (first page — Instrumentl's recommendations for selected project)",
                         variable=self.fetch_matches_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
-        self.fetch_all_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(options_frame, text="Fetch All Available Grants (discover new opportunities — slow)",
-                        variable=self.fetch_all_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
 
         # Location filter
         ttk.Separator(options_frame, orient='horizontal').pack(fill=tk.X, pady=(15, 10))
@@ -1194,7 +1191,7 @@ class GrantMatcherApp:
             return
 
         # Check if at least one option is selected
-        if not self.fetch_saved_var.get() and not self.fetch_matches_var.get() and not self.fetch_all_var.get():
+        if not self.fetch_saved_var.get() and not self.fetch_matches_var.get():
             messagebox.showerror("Error", "Please select at least one fetch option")
             return
 
@@ -1252,31 +1249,6 @@ class GrantMatcherApp:
                                 time.sleep(0.2)
                             except Exception as e:
                                 print(f"Error fetching match grant {grant_id}: {e}")
-                                all_grants.append(g)
-
-                if self.fetch_all_var.get():
-                    self.fetch_progress_var.set("Fetching all grants...")
-                    self.root.update()
-                    grants = client.get_all_grants(callback=lambda msg: self.update_fetch_status(msg))
-                    existing_ids = {g.get('id') for g in all_grants}
-
-                    # Fetch expanded details for each grant to get overview, categories, etc.
-                    grants_to_fetch = [g for g in grants if g.get('id') not in existing_ids]
-                    total_to_fetch = len(grants_to_fetch)
-
-                    for idx, g in enumerate(grants_to_fetch, 1):
-                        grant_id = g.get('id')
-                        if grant_id:
-                            try:
-                                self.fetch_progress_var.set(f"Fetching grant details {idx}/{total_to_fetch}...")
-                                self.root.update()
-                                grant_detail = client.get_grant(grant_id)
-                                if grant_detail:
-                                    all_grants.append(grant_detail)
-                                time.sleep(0.2)  # Rate limiting
-                            except Exception as e:
-                                print(f"Error fetching grant {grant_id}: {e}")
-                                # Add basic grant if expanded fetch fails
                                 all_grants.append(g)
 
                 # Apply location filter
