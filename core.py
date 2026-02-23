@@ -422,6 +422,23 @@ class InstrumentlAPI:
             params["funder_id"] = funder_id
         return self._make_request("/v1/grants", params)
 
+    def get_grants_first_page(self, project_id=None):
+        """Fetch only the first page of grants (up to 50).
+
+        When a project_id is provided it is passed as a query parameter so the
+        API can return grants matched to that specific project (the same set
+        shown on the Instrumentl "Matches" tab).  If the API does not support
+        this parameter the call still succeeds and returns the first page of
+        all available grants.
+        """
+        params = {"page_size": 50}
+        if project_id:
+            params["project_id"] = project_id
+        result = self._make_request("/v1/grants", params)
+        if not result:
+            return []
+        return result.get("grants", [])
+
     def get_grant(self, grant_id):
         return self._make_request(f"/v1/grants/{grant_id}")
 

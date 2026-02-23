@@ -536,6 +536,23 @@ class InstrumentlAPI:
             params["funder_id"] = funder_id
         return self._make_request("/v1/grants", params)
 
+    def get_grants_first_page(self, project_id=None):
+        """Fetch only the first page of grants (up to 50).
+
+        When a project_id is provided it is passed as a query parameter so the
+        API can return grants matched to that specific project (the same set
+        shown on the Instrumentl "Matches" tab).  If the API does not support
+        this parameter the call still succeeds and returns the first page of
+        all available grants.
+        """
+        params = {"page_size": 50}
+        if project_id:
+            params["project_id"] = project_id
+        result = self._make_request("/v1/grants", params)
+        if not result:
+            return []
+        return result.get("grants", [])
+
     def get_grant(self, grant_id):
         return self._make_request(f"/v1/grants/{grant_id}")
 
@@ -909,8 +926,12 @@ class GrantMatcherApp:
         self.fetch_saved_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(options_frame, text="Fetch Saved Grants (grants you've already saved to projects)",
                         variable=self.fetch_saved_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
-        self.fetch_all_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(options_frame, text="Fetch All Available Grants (discover new opportunities)",
+        self.fetch_matches_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(options_frame,
+                        text="Fetch Grant Matches (first page — Instrumentl's recommendations for selected project)",
+                        variable=self.fetch_matches_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
+        self.fetch_all_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(options_frame, text="Fetch All Available Grants (discover new opportunities — slow)",
                         variable=self.fetch_all_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
 
         # Location filter
@@ -1173,7 +1194,7 @@ class GrantMatcherApp:
             return
 
         # Check if at least one option is selected
-        if not self.fetch_saved_var.get() and not self.fetch_all_var.get():
+        if not self.fetch_saved_var.get() and not self.fetch_matches_var.get() and not self.fetch_all_var.get():
             messagebox.showerror("Error", "Please select at least one fetch option")
             return
 
@@ -1210,6 +1231,28 @@ class GrantMatcherApp:
                                 time.sleep(0.2)
                             except:
                                 pass
+
+                if self.fetch_matches_var.get():
+                    project_label = self.project_combo_var.get()
+                    self.fetch_progress_var.set(f"Fetching grant matches (first page) for {project_label}...")
+                    self.root.update()
+                    matched = client.get_grants_first_page(project_id=selected_project_id)
+                    existing_ids = {g.get('id') for g in all_grants}
+                    new_matches = [g for g in matched if g.get('id') not in existing_ids]
+                    total_matches = len(new_matches)
+                    for idx, g in enumerate(new_matches, 1):
+                        grant_id = g.get('id')
+                        if grant_id:
+                            try:
+                                self.fetch_progress_var.set(f"Fetching match details {idx}/{total_matches}...")
+                                self.root.update()
+                                grant_detail = client.get_grant(grant_id)
+                                if grant_detail:
+                                    all_grants.append(grant_detail)
+                                time.sleep(0.2)
+                            except Exception as e:
+                                print(f"Error fetching match grant {grant_id}: {e}")
+                                all_grants.append(g)
 
                 if self.fetch_all_var.get():
                     self.fetch_progress_var.set("Fetching all grants...")
