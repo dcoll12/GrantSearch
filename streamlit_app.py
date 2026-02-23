@@ -10,6 +10,7 @@ import io
 import time
 import tempfile
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -48,6 +49,7 @@ defaults = {
     "grants_data": [],
     "uploaded_docs": [],   # list of {"name": str, "text": str}
     "match_results": [],
+    "navigate_to_tab": None,
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -225,7 +227,10 @@ with tab_docs:
             st.rerun()
 
         st.divider()
-        st.info("✅ Documents ready. Click the **☁️ 2. Fetch Grants** tab above to continue.")
+        st.success("✅ Documents ready.")
+        if st.button("☁️ Go to Fetch Grants →", type="primary", use_container_width=True):
+            st.session_state.navigate_to_tab = 1
+            st.rerun()
 
 # ------------------------------------------------------------------------------
 # TAB 2 — FETCH GRANTS
@@ -239,6 +244,8 @@ with tab_fetch:
     else:
         # Project selector
         st.subheader("Project (optional)")
+        if not st.session_state.projects:
+            st.info("Click **🔄 Refresh Projects** to load your active projects from Instrumentl.")
         col1, col2 = st.columns([3, 1])
         with col1:
             project_options = ["-- All Projects --"] + [
@@ -620,3 +627,25 @@ with tab_results:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
+
+# ---------------------------------------------------------------------------
+# PROGRAMMATIC TAB NAVIGATION
+# ---------------------------------------------------------------------------
+# If a navigate_to_tab index was set (e.g. by the "Go to Fetch Grants" button
+# on the upload tab), inject a tiny script that clicks the target tab header.
+_nav_tab = st.session_state.get("navigate_to_tab")
+if _nav_tab is not None:
+    st.session_state.navigate_to_tab = None
+    components.html(
+        f"""
+        <script>
+            // Streamlit renders tab buttons as [data-baseweb="tab"] elements.
+            // We wait a tick to ensure they exist in the parent frame's DOM.
+            setTimeout(function() {{
+                var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+                if (tabs.length > {_nav_tab}) tabs[{_nav_tab}].click();
+            }}, 100);
+        </script>
+        """,
+        height=0,
+    )
