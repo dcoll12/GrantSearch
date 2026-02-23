@@ -8,6 +8,7 @@ Deploy to Streamlit Community Cloud (share.streamlit.io) for free.
 import os
 import io
 import sys
+import json
 import time
 import platform
 import subprocess
@@ -158,26 +159,47 @@ tab_docs, tab_fetch, tab_match, tab_results = st.tabs([
 # TAB 1 — UPLOAD DOCUMENTS
 # ------------------------------------------------------------------------------
 
-def _launch_auto_save():
+_PROJECTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instrumentl_projects.json")
+
+
+def _load_projects() -> dict:
+    """Load saved projects dict {name: project_id} from disk."""
+    if os.path.exists(_PROJECTS_FILE):
+        try:
+            with open(_PROJECTS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_projects(projects: dict):
+    with open(_PROJECTS_FILE, "w") as f:
+        json.dump(projects, f, indent=2)
+
+
+def _launch_auto_save(project_id: str | None = None):
     """Launch instrumentl_auto_save.py in a new terminal window."""
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instrumentl_auto_save.py")
     py = sys.executable
+    extra = ["--project-id", str(project_id)] if project_id else []
     system = platform.system()
     try:
         if system == "Windows":
-            subprocess.Popen(["start", "cmd", "/k", py, script], shell=True)
+            cmd = " ".join([py, script] + extra)
+            subprocess.Popen(["start", "cmd", "/k", cmd], shell=True)
         elif system == "Darwin":
-            # AppleScript opens a new Terminal tab/window
-            apple = f'tell application "Terminal" to do script "{py} {script}"'
+            cmd_str = " ".join([py, script] + extra)
+            apple = f'tell application "Terminal" to do script "{cmd_str}"'
             subprocess.Popen(["osascript", "-e", apple])
         else:
-            # Linux — try common terminal emulators in order
+            base = [py, script] + extra
             terminals = [
-                ["gnome-terminal", "--", py, script],
-                ["x-terminal-emulator", "-e", f"{py} {script}"],
-                ["xterm", "-e", f"{py} {script}"],
-                ["konsole", "-e", py, script],
-                ["xfce4-terminal", "-e", f"{py} {script}"],
+                ["gnome-terminal", "--"] + base,
+                ["x-terminal-emulator", "-e", " ".join(base)],
+                ["xterm", "-e", " ".join(base)],
+                ["konsole", "-e"] + base,
+                ["xfce4-terminal", "-e", " ".join(base)],
             ]
             launched = False
             for cmd in terminals:
@@ -202,17 +224,72 @@ with tab_docs:
         st.write(
             "Before fetching grants, use the auto-save script to save Instrumentl's "
             "recommended matches to your project. The script opens a Chrome browser, "
-            "lets you log in, then automatically clicks **Save** on every match in "
-            "your selected project."
+            "lets you log in, then automatically clicks **Save** on every match "
+            "(5.5 – 18 s random delay between saves)."
         )
         st.caption("Requires Chrome and the `selenium` / `webdriver-manager` packages.")
-        if st.button("▶ Launch Auto-Save Script", type="primary"):
-            ok, err = _launch_auto_save()
-            if ok:
-                st.success("Auto-save script launched in a new terminal window. Follow the prompts there.")
-            else:
-                st.error(f"Could not open a terminal automatically: {err}")
-                st.code(f"python instrumentl_auto_save.py", language="bash")
+
+        # ── Project list management ──────────────────────────────────────────
+        if "as_projects" not in st.session_state:
+            st.session_state.as_projects = _load_projects()
+
+        projects = st.session_state.as_projects
+        project_names = list(projects.keys())
+
+        col_sel, col_manage = st.columns([3, 2])
+        with col_sel:
+            selected_name = st.selectbox(
+                "Select project",
+                options=project_names if project_names else ["— no projects saved yet —"],
+                disabled=not project_names,
+                key="as_selected_project",
+            )
+        selected_id = projects.get(selected_name) if project_names else None
+
+        with col_manage:
+            st.write("")  # vertical spacer
+            if st.button("▶ Launch Auto-Save", type="primary", disabled=not project_names):
+                ok, err = _launch_auto_save(project_id=selected_id)
+                if ok:
+                    st.success(
+                        f"Launched for project **{selected_name}** (ID: {selected_id}). "
+                        "Log in when the browser opens."
+                    )
+                else:
+                    st.error(f"Could not open terminal: {err}")
+                    st.code(
+                        f"python instrumentl_auto_save.py --project-id {selected_id}",
+                        language="bash",
+                    )
+
+        # ── Add / remove projects ────────────────────────────────────────────
+        with st.expander("Manage projects"):
+            st.markdown("**Add a project** — find the ID in the Instrumentl URL: `…/projects/326636`")
+            c1, c2, c3 = st.columns([3, 2, 1])
+            with c1:
+                new_name = st.text_input("Project name", key="as_new_name", label_visibility="collapsed",
+                                         placeholder="e.g. Housing Initiative 2025")
+            with c2:
+                new_id = st.text_input("Project ID", key="as_new_id", label_visibility="collapsed",
+                                       placeholder="e.g. 326636")
+            with c3:
+                if st.button("Add", key="as_add_btn"):
+                    if new_name.strip() and new_id.strip():
+                        projects[new_name.strip()] = new_id.strip()
+                        _save_projects(projects)
+                        st.session_state.as_projects = projects
+                        st.rerun()
+                    else:
+                        st.warning("Enter both a name and an ID.")
+
+            if project_names:
+                st.markdown("**Remove a project**")
+                to_remove = st.selectbox("Select to remove", project_names, key="as_remove_sel")
+                if st.button("Remove", key="as_remove_btn"):
+                    projects.pop(to_remove, None)
+                    _save_projects(projects)
+                    st.session_state.as_projects = projects
+                    st.rerun()
 
     st.divider()
 
