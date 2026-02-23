@@ -7,7 +7,10 @@ Deploy to Streamlit Community Cloud (share.streamlit.io) for free.
 
 import os
 import io
+import sys
 import time
+import platform
+import subprocess
 import tempfile
 import streamlit as st
 import streamlit.components.v1 as components
@@ -155,8 +158,64 @@ tab_docs, tab_fetch, tab_match, tab_results = st.tabs([
 # TAB 1 — UPLOAD DOCUMENTS
 # ------------------------------------------------------------------------------
 
+def _launch_auto_save():
+    """Launch instrumentl_auto_save.py in a new terminal window."""
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instrumentl_auto_save.py")
+    py = sys.executable
+    system = platform.system()
+    try:
+        if system == "Windows":
+            subprocess.Popen(["start", "cmd", "/k", py, script], shell=True)
+        elif system == "Darwin":
+            # AppleScript opens a new Terminal tab/window
+            apple = f'tell application "Terminal" to do script "{py} {script}"'
+            subprocess.Popen(["osascript", "-e", apple])
+        else:
+            # Linux — try common terminal emulators in order
+            terminals = [
+                ["gnome-terminal", "--", py, script],
+                ["x-terminal-emulator", "-e", f"{py} {script}"],
+                ["xterm", "-e", f"{py} {script}"],
+                ["konsole", "-e", py, script],
+                ["xfce4-terminal", "-e", f"{py} {script}"],
+            ]
+            launched = False
+            for cmd in terminals:
+                try:
+                    subprocess.Popen(cmd)
+                    launched = True
+                    break
+                except FileNotFoundError:
+                    continue
+            if not launched:
+                return False, "No terminal emulator found. Run manually: python instrumentl_auto_save.py"
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
 with tab_docs:
     st.header("Upload Your Documents")
+
+    # ── Auto-Save Launcher ────────────────────────────────────────────────────
+    with st.expander("🤖 Auto-Save Instrumentl Matches", expanded=False):
+        st.write(
+            "Before fetching grants, use the auto-save script to save Instrumentl's "
+            "recommended matches to your project. The script opens a Chrome browser, "
+            "lets you log in, then automatically clicks **Save** on every match in "
+            "your selected project."
+        )
+        st.caption("Requires Chrome and the `selenium` / `webdriver-manager` packages.")
+        if st.button("▶ Launch Auto-Save Script", type="primary"):
+            ok, err = _launch_auto_save()
+            if ok:
+                st.success("Auto-save script launched in a new terminal window. Follow the prompts there.")
+            else:
+                st.error(f"Could not open a terminal automatically: {err}")
+                st.code(f"python instrumentl_auto_save.py", language="bash")
+
+    st.divider()
+
     st.write("Upload PDFs, Word docs, Excel files, PowerPoints, CSVs, or plain text. "
              "The matcher reads the content and builds a profile of your organization.")
 
