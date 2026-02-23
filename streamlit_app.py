@@ -277,8 +277,10 @@ with tab_fetch:
         with col1:
             fetch_saved = st.checkbox("Fetch Saved Grants", value=True,
                                       help="Grants you've already saved to projects in Instrumentl")
-            fetch_all = st.checkbox("Fetch All Available Grants", value=True,
-                                    help="Discover new grant opportunities")
+            fetch_matches = st.checkbox("Fetch Grant Matches (first page)", value=True,
+                                        help="First page of Instrumentl's grant recommendations for the selected project (fast — fetches up to 50 grants)")
+            fetch_all = st.checkbox("Fetch All Available Grants", value=False,
+                                    help="Discover new grant opportunities — fetches every grant in the database (slow)")
         with col2:
             location_filter = st.radio(
                 "Geographic Filter",
@@ -296,7 +298,7 @@ with tab_fetch:
         st.divider()
 
         if st.button("⬇️ Fetch Grants", type="primary", use_container_width=True):
-            if not fetch_saved and not fetch_all:
+            if not fetch_saved and not fetch_matches and not fetch_all:
                 st.error("Select at least one fetch option.")
             else:
                 all_grants = []
@@ -321,6 +323,24 @@ with tab_fetch:
                                     time.sleep(0.2)
                                 except Exception:
                                     pass
+
+                    if fetch_matches:
+                        project_label = selected_project_label if selected_project_id else "all projects"
+                        status_box.write(f"Fetching grant matches (first page) for {project_label}...")
+                        matched = client.get_grants_first_page(project_id=selected_project_id)
+                        existing_ids = {g.get("id") for g in all_grants}
+                        new_matches = [g for g in matched if g.get("id") not in existing_ids]
+                        for idx, g in enumerate(new_matches, 1):
+                            grant_id = g.get("id")
+                            if grant_id:
+                                try:
+                                    status_box.write(f"Fetching match details {idx}/{len(new_matches)}...")
+                                    detail = client.get_grant(grant_id)
+                                    if detail:
+                                        all_grants.append(detail)
+                                    time.sleep(0.2)
+                                except Exception:
+                                    all_grants.append(g)
 
                     if fetch_all:
                         status_box.write("Fetching all available grants...")
