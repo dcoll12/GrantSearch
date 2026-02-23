@@ -401,7 +401,9 @@ class InstrumentlAPI:
             if not result:
                 break
             projects = result.get('projects', [])
-            all_projects.extend(projects)
+            for p in projects:
+                if _is_active_project(p):
+                    all_projects.append(p)
             meta = result.get('meta', {})
             if not meta.get('has_more', False):
                 break
@@ -470,6 +472,42 @@ class InstrumentlAPI:
             page += 1
             time.sleep(0.25)
         return all_saved
+
+
+# ==============================================================================
+# PROJECT FILTER
+# ==============================================================================
+
+def _is_active_project(project):
+    """Return True if a project should be considered active.
+
+    The Instrumentl API may include archived or deleted projects in the
+    /v1/projects response.  We inspect several common status fields and
+    exclude any project that is clearly inactive.  If none of these fields
+    are present on the object we assume the project is active (fail-open).
+    """
+    # status field: keep only if value is 'active' (case-insensitive)
+    status = project.get('status')
+    if status is not None:
+        return str(status).lower() == 'active'
+
+    # archived_at timestamp: non-null means archived
+    archived_at = project.get('archived_at')
+    if archived_at is not None:
+        return False
+
+    # archived boolean flag
+    archived = project.get('archived')
+    if archived:
+        return False
+
+    # is_active boolean flag
+    is_active = project.get('is_active')
+    if is_active is not None:
+        return bool(is_active)
+
+    # No status field found — assume active
+    return True
 
 
 # ==============================================================================
