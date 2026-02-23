@@ -926,10 +926,10 @@ class GrantMatcherApp:
         self.fetch_saved_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(options_frame, text="Fetch Saved Grants (grants you've already saved to projects)",
                         variable=self.fetch_saved_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
-        self.fetch_matches_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(options_frame,
-                        text="Fetch Grant Matches (first page — Instrumentl's recommendations for selected project)",
-                        variable=self.fetch_matches_var, style='TCheckbutton').pack(anchor=tk.W, pady=3)
+        ttk.Label(options_frame,
+                  text="💡 To include Instrumentl's recommended matches, use the auto-save script to save them to your project first.",
+                  font=('Segoe UI', 8), foreground=self.COLORS['text_secondary'],
+                  background=self.COLORS['surface'], wraplength=650).pack(anchor=tk.W, pady=(2, 0))
 
         # Location filter
         ttk.Separator(options_frame, orient='horizontal').pack(fill=tk.X, pady=(15, 10))
@@ -1190,8 +1190,7 @@ class GrantMatcherApp:
             self.notebook.select(0)
             return
 
-        # Check if at least one option is selected
-        if not self.fetch_saved_var.get() and not self.fetch_matches_var.get():
+        if not self.fetch_saved_var.get():
             messagebox.showerror("Error", "Please select at least one fetch option")
             return
 
@@ -1228,28 +1227,6 @@ class GrantMatcherApp:
                                 time.sleep(0.2)
                             except:
                                 pass
-
-                if self.fetch_matches_var.get():
-                    project_label = self.project_combo_var.get()
-                    self.fetch_progress_var.set(f"Fetching grant matches (first page) for {project_label}...")
-                    self.root.update()
-                    matched = client.get_grants_first_page(project_id=selected_project_id)
-                    existing_ids = {g.get('id') for g in all_grants}
-                    new_matches = [g for g in matched if g.get('id') not in existing_ids]
-                    total_matches = len(new_matches)
-                    for idx, g in enumerate(new_matches, 1):
-                        grant_id = g.get('id')
-                        if grant_id:
-                            try:
-                                self.fetch_progress_var.set(f"Fetching match details {idx}/{total_matches}...")
-                                self.root.update()
-                                grant_detail = client.get_grant(grant_id)
-                                if grant_detail:
-                                    all_grants.append(grant_detail)
-                                time.sleep(0.2)
-                            except Exception as e:
-                                print(f"Error fetching match grant {grant_id}: {e}")
-                                all_grants.append(g)
 
                 # Apply location filter
                 if location_filter != "all":
