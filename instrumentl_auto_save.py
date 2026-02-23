@@ -23,6 +23,7 @@ import time
 import random
 import json
 import sys
+import argparse
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -42,8 +43,8 @@ MAX_MATCHES_TO_SAVE = None  # or set a number like 50, 100, etc.
 
 # Random delay range between saves (seconds) - keeps behavior less predictable
 # Min should not be set too low or you'll get rate limited
-DELAY_MIN = 7
-DELAY_MAX = 15
+DELAY_MIN = 5.5
+DELAY_MAX = 18
 
 # Wait time for page loads (seconds)
 PAGE_LOAD_TIMEOUT = 10
@@ -568,12 +569,17 @@ class InstrumentlAutoSaver:
         # Scroll to load more matches
         self.scroll_to_load_more()
 
-        # ---------- Attempt 1: JS-based DOM click ----------
-        print("🔍 Scanning page for Save elements (deep JS scan)...")
-        if DEBUG_MODE:
-            self._debug_dump_all_elements()
+        # ---------- Attempt 1: confirmed CSS selector from Selenium recording ----------
+        print("🔍 Looking for Save buttons (.save-button-container > .btn)...")
+        css_btns = self.driver.find_elements(By.CSS_SELECTOR, ".save-button-container > .btn")
+        elements = [el for el in css_btns if el.is_displayed()]
 
-        elements = self._find_save_elements_js()
+        # ---------- Attempt 2: JS deep scan fallback ----------
+        if not elements:
+            print("   CSS selector found nothing — falling back to JS deep scan...")
+            if DEBUG_MODE:
+                self._debug_dump_all_elements()
+            elements = self._find_save_elements_js()
 
         if elements:
             print(f"✓ Found {len(elements)} Save elements via JS scan")
@@ -726,19 +732,33 @@ class InstrumentlAutoSaver:
             # Step 1 — log in
             self.login_prompt()
 
-            # Step 2 — fetch active projects and show GUI selector
-            projects = self.fetch_active_projects()
-            if not projects:
-                projects = {"(enter URL manually)": ""}
-            self.project_url = select_project_gui(projects)
+            # Step 2 — project selection (skip if already set via CLI)
             if not self.project_url:
-                print("\n❌ No project selected. Exiting.")
-                return
+                projects = self.fetch_active_projects()
+                if not projects:
+                    projects = {"(enter URL manually)": ""}
+                self.project_url = select_project_gui(projects)
+                if not self.project_url:
+                    print("\n❌ No project selected. Exiting.")
+                    return
+            else:
+                print(f"\n🌐 Project set from command line: {self.project_url}")
 
             # Step 3 — navigate to the chosen project and install interceptor
-            print(f"\n🌐 Navigating to project: {self.project_url}")
+            print(f"\n🌐 Navigating to: {self.project_url}")
             self.driver.get(self.project_url)
             time.sleep(random.uniform(2.0, 3.5))
+
+            # Click the Matches tab (confirmed working selector from Selenium recording)
+            try:
+                matches_tab = WebDriverWait(self.driver, PAGE_LOAD_TIMEOUT).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "#matches-nav-tab > .name"))
+                )
+                matches_tab.click()
+                print("   ✓ Navigated to Matches tab")
+                time.sleep(random.uniform(1.5, 2.5))
+            except (TimeoutException, NoSuchElementException):
+                print("   (Matches tab not found — may already be on matches page)")
             print("   Installing network interceptor...")
             self._install_network_interceptor()
             print(f"\n📋 Configuration:")
@@ -770,32 +790,59 @@ class InstrumentlAutoSaver:
 # ==============================================================================
 
 def main():
-    print("""
+    parser = argparse.ArgumentParser(description="Instrumentl Auto-Save Matches")
+    parser.add_argument(
+        "--project-id", default=None,
+        help="Instrumentl project ID (digits from URL, e.g. 326636)"
+    )
+    parser.add_argument(
+        "--project-url", default=None,
+        help="Full Instrumentl project URL (overrides --project-id)"
+    )
+    parser.add_argument(
+        "--max-saves", type=int, default=None,
+        help="Maximum number of matches to save (default: all)"
+    )
+    args = parser.parse_args()
+
+    # Build project URL from CLI args if provided
+    cli_project_url = None
+    if args.project_url:
+        cli_project_url = args.project_url
+    elif args.project_id:
+        cli_project_url = (
+            f"https://www.instrumentl.com/projects/{args.project_id}#/matches"
+        )
+
+    if not cli_project_url:
+        # Interactive mode — show banner and ask for confirmation
+        print("""
     ╔══════════════════════════════════════════════════════════╗
     ║     Instrumentl Auto-Save Matches Script                ║
     ║                                                          ║
     ║  ⚠️  WARNING: Use at your own risk!                     ║
     ║     This may violate Terms of Service                   ║
     ╚══════════════════════════════════════════════════════════╝
-    """)
-    
-    print("\n⚠️  IMPORTANT:")
-    print("   • This script automates clicking 'Save' on matches")
-    print("   • You must be logged in to Instrumentl")
-    print("   • Use reasonable delays to avoid rate limiting")
-    print("   • Your account could be banned for automation")
+        """)
+        print("\n⚠️  IMPORTANT:")
+        print("   • This script automates clicking 'Save' on matches")
+        print("   • You must be logged in to Instrumentl")
+        print("   • Use reasonable delays to avoid rate limiting")
+        print("   • Your account could be banned for automation")
 
-    response = input("\nDo you want to continue? (yes/no): ").strip().lower()
-
-    if response != 'yes':
-        print("\n❌ Cancelled by user")
-        return
+        response = input("\nDo you want to continue? (yes/no): ").strip().lower()
+        if response != 'yes':
+            print("\n❌ Cancelled by user")
+            return
 
     saver = InstrumentlAutoSaver(
-        max_saves=MAX_MATCHES_TO_SAVE,
+        max_saves=args.max_saves if args.max_saves is not None else MAX_MATCHES_TO_SAVE,
         delay_min=DELAY_MIN,
-        delay_max=DELAY_MAX
+        delay_max=DELAY_MAX,
     )
+
+    if cli_project_url:
+        saver.project_url = cli_project_url
 
     saver.run()
 
