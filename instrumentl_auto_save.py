@@ -239,15 +239,14 @@ class InstrumentlAutoSaver:
         time.sleep(duration)
         
     def setup_driver(self):
-        """Initialize Chrome driver"""
+        """Initialize Firefox driver"""
+        import os
         print("Setting up browser...")
-        
+
         try:
-            # Try using webdriver-manager (easier)
             from webdriver_manager.firefox import GeckoDriverManager
             service = Service(GeckoDriverManager().install())
         except ImportError:
-            # Fallback to system geckodriver
             print("⚠️  webdriver-manager not installed. Using system geckodriver.")
             print("   Install with: pip install webdriver-manager")
             service = Service()  # Assumes geckodriver is in PATH
@@ -255,6 +254,27 @@ class InstrumentlAutoSaver:
         options = Options()
         # Uncomment the line below to run headless (no browser window)
         # options.add_argument('--headless')
+
+        # Auto-detect Firefox binary on Windows if not in the default location
+        if os.name == 'nt' and not options.binary_location:
+            candidates = [
+                r"C:\Program Files\Mozilla Firefox\firefox.exe",
+                r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Mozilla Firefox\firefox.exe"),
+                os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
+                os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"),
+                os.path.expandvars(r"%APPDATA%\Mozilla Firefox\firefox.exe"),
+            ]
+            for path in candidates:
+                if os.path.isfile(path):
+                    options.binary_location = path
+                    print(f"   Found Firefox at: {path}")
+                    break
+            else:
+                print("⚠️  Could not find Firefox automatically.")
+                manual = input("   Enter full path to firefox.exe: ").strip().strip('"')
+                if manual:
+                    options.binary_location = manual
 
         self.driver = webdriver.Firefox(service=service, options=options)
         self.driver.maximize_window()
