@@ -225,7 +225,7 @@ with tab_docs:
             "Before fetching grants, use the auto-save script to save Instrumentl's "
             "recommended matches to your project. The script opens a Firefox browser, "
             "lets you log in, then automatically clicks **Save** on every match "
-            "(10 – 25 s random delay between saves)."
+            "(8 – 15 s random delay between saves)."
         )
         st.caption("Requires Firefox and the `selenium` / `webdriver-manager` packages.")
 
@@ -294,7 +294,7 @@ with tab_docs:
     # ── Bookmarklet ───────────────────────────────────────────────────────────
     _BOOKMARKLET_JS = (
         "javascript:(function(){if(window.__iasRunning){window.__iasRunning=false;return;}"
-        "window.__iasRunning=true;var MIN=10000,MAX=25000,saved=0;"
+        "window.__iasRunning=true;var MIN=8000,MAX=15000,saved=0;"
         "var box=document.createElement('div');"
         "box.style.cssText='position:fixed;top:12px;right:12px;z-index:2147483647;"
         "background:#1e293b;color:#f8fafc;padding:14px 18px;border-radius:10px;"
@@ -375,7 +375,7 @@ with tab_docs:
             "1. Log in to Instrumentl and open your project's **Matches** tab.\n"
             "2. Click the **🤖 Instrumentl Auto-Save** bookmark.\n"
             "3. A status badge appears in the top-right corner of the page.\n"
-            "4. The script clicks Save on each grant and waits **10–25 seconds** "
+            "4. The script clicks Save on each grant and waits **8–15 seconds** "
             "(random) before the next one.\n"
             "5. Click **⏹ Stop** at any time, or click the bookmark again to stop.\n"
             "6. The script stops automatically when there are no more Save buttons."
