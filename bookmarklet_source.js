@@ -2,7 +2,7 @@
  * Instrumentl Auto-Save Bookmarklet
  * ----------------------------------
  * Navigate to your Instrumentl project's Matches page, then click the bookmark.
- * The script waits for each Save button, clicks it, then waits a random 4–11.5 s
+ * The script waits for each Save button, clicks it, then waits a random 4–9.5 s
  * before looking for the next one (which loads automatically).
  *
  * To install: minify this file (or use the one-liner in bookmarklet.html) and
@@ -17,7 +17,7 @@
   window.__iasRunning = true;
 
   var MIN_DELAY = 4000;   // 4 s
-  var MAX_DELAY = 11500;  // 11.5 s
+  var MAX_DELAY = 9500;   // 9.5 s
   var saved = 0;
 
   // ── Status overlay ────────────────────────────────────────────────────────
