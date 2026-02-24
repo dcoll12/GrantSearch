@@ -263,6 +263,7 @@ class InstrumentlAutoSaver:
                 os.path.expandvars(r"%LOCALAPPDATA%\Mozilla Firefox\firefox.exe"),
                 os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
                 os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"),
+                os.path.expandvars(r"%APPDATA%\Mozilla Firefox\firefox.exe"),
             ]
             for path in candidates:
                 if os.path.isfile(path):
