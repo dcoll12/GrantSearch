@@ -500,7 +500,15 @@ with tab_fetch:
                 st.rerun()
 
             st.divider()
-            st.info("✅ Grants fetched. Click the **🔍 3. Run Matching** tab above to continue.")
+            st.info("✅ Grants fetched and ready for matching.")
+            if st.button("🔍 Run Matching", type="primary", use_container_width=True):
+                components.html(
+                    """<script>
+                    var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+                    if (tabs.length > 2) tabs[2].click();
+                    </script>""",
+                    height=0,
+                )
 
 # ------------------------------------------------------------------------------
 # TAB 3 — RUN MATCHING
