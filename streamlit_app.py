@@ -223,11 +223,11 @@ with tab_docs:
     with st.expander("🤖 Auto-Save Instrumentl Matches", expanded=False):
         st.write(
             "Before fetching grants, use the auto-save script to save Instrumentl's "
-            "recommended matches to your project. The script opens a Chrome browser, "
+            "recommended matches to your project. The script opens a Firefox browser, "
             "lets you log in, then automatically clicks **Save** on every match "
-            "(5.5 – 18 s random delay between saves)."
+            "(10 – 25 s random delay between saves)."
         )
-        st.caption("Requires Chrome and the `selenium` / `webdriver-manager` packages.")
+        st.caption("Requires Firefox and the `selenium` / `webdriver-manager` packages.")
 
         # ── Project list management ──────────────────────────────────────────
         if "as_projects" not in st.session_state:
@@ -290,6 +290,96 @@ with tab_docs:
                     _save_projects(projects)
                     st.session_state.as_projects = projects
                     st.rerun()
+
+    # ── Bookmarklet ───────────────────────────────────────────────────────────
+    _BOOKMARKLET_JS = (
+        "javascript:(function(){if(window.__iasRunning){window.__iasRunning=false;return;}"
+        "window.__iasRunning=true;var MIN=10000,MAX=25000,saved=0;"
+        "var box=document.createElement('div');"
+        "box.style.cssText='position:fixed;top:12px;right:12px;z-index:2147483647;"
+        "background:#1e293b;color:#f8fafc;padding:14px 18px;border-radius:10px;"
+        "font:13px/1.6 system-ui,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.45);"
+        "min-width:230px;max-width:300px';"
+        r"box.innerHTML='<b style=\"font-size:14px\">🤖 Instrumentl Auto-Save<\/b>"
+        r"<div id=\"__ias_msg\" style=\"margin:6px 0 10px;color:#94a3b8\">Starting\u2026<\/div>"
+        r"<button id=\"__ias_stop\" style=\"background:#ef4444;border:0;color:#fff;"
+        r"padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px\">\u23f9 Stop<\/button>';"
+        "document.body.appendChild(box);"
+        "var msgEl=document.getElementById('__ias_msg');"
+        "function setMsg(s){msgEl.textContent=s;}"
+        "document.getElementById('__ias_stop').onclick=function(){"
+        "window.__iasRunning=false;setMsg('Stopped. Saved '+saved+' grant(s).');"
+        "setTimeout(function(){box.remove();},3000);};"
+        "function waitForBtn(t){return new Promise(function(res,rej){"
+        "var d=Date.now()+t,i=setInterval(function(){"
+        "var e=document.querySelector('.save-button-container > .btn');"
+        "if(e&&e.offsetParent!==null){clearInterval(i);res(e);}"
+        "else if(Date.now()>d){clearInterval(i);rej(new Error('timeout'));}},600);});}"
+        "function countdownDelay(ms){return new Promise(function(resolve){"
+        "var end=Date.now()+ms,t=setInterval(function(){"
+        "if(!window.__iasRunning){clearInterval(t);resolve();return;}"
+        "var s=Math.ceil((end-Date.now())/1000);"
+        "if(s<=0){clearInterval(t);resolve();}"
+        r"else setMsg('Saved '+saved+'. Next in '+s+'s\u2026');},1000);});}"
+        "(async function loop(){while(window.__iasRunning){try{"
+        r"setMsg('Waiting for Save button\u2026');"
+        "var el=await waitForBtn(20000);"
+        "if(!window.__iasRunning)break;"
+        "saved++;setMsg('Clicking Save #'+saved+'\u2026');"
+        "el.scrollIntoView({behavior:'smooth',block:'center'});"
+        "await new Promise(function(r){setTimeout(r,400);});"
+        "el.click();"
+        "await countdownDelay(Math.random()*(MAX-MIN)+MIN);"
+        "}catch(e){setMsg('Done! Saved '+saved+' grant(s).');"
+        "window.__iasRunning=false;"
+        "setTimeout(function(){box.remove();},6000);break;}}})();})()"
+    )
+
+    with st.expander("🔖 Browser Bookmarklet — no install required", expanded=False):
+        st.write(
+            "Works in **any modern browser** (Chrome, Firefox, Edge, Safari). "
+            "No Python, Selenium, or drivers needed — just save it as a bookmark."
+        )
+
+        st.subheader("Option A — Drag to install")
+        components.html(
+            f"""
+            <div style="font-family:system-ui,sans-serif;padding:8px 0;">
+              <p style="margin:0 0 12px;color:#475569;font-size:13px;">
+                Drag the button below to your browser's <b>Bookmarks Bar</b>.<br>
+                <span style="font-size:12px;">(Chrome/Edge: Ctrl+Shift+B &nbsp;|&nbsp;
+                Firefox: View → Toolbars → Bookmarks Toolbar)</span>
+              </p>
+              <a href="{_BOOKMARKLET_JS}"
+                 style="display:inline-block;background:#6366f1;color:#fff;
+                        padding:11px 26px;border-radius:8px;text-decoration:none;
+                        font-weight:700;font-size:14px;cursor:grab;
+                        box-shadow:0 2px 8px rgba(99,102,241,.35);"
+                 title="Drag me to your bookmarks bar">
+                🤖 Instrumentl Auto-Save
+              </a>
+            </div>
+            """,
+            height=90,
+        )
+
+        st.subheader("Option B — Copy & paste")
+        st.write(
+            "Create a new bookmark, give it any name, then paste the code below "
+            "as the **URL / Address**."
+        )
+        st.code(_BOOKMARKLET_JS, language=None)
+
+        st.subheader("How to use")
+        st.markdown(
+            "1. Log in to Instrumentl and open your project's **Matches** tab.\n"
+            "2. Click the **🤖 Instrumentl Auto-Save** bookmark.\n"
+            "3. A status badge appears in the top-right corner of the page.\n"
+            "4. The script clicks Save on each grant and waits **10–25 seconds** "
+            "(random) before the next one.\n"
+            "5. Click **⏹ Stop** at any time, or click the bookmark again to stop.\n"
+            "6. The script stops automatically when there are no more Save buttons."
+        )
 
     st.divider()
 
