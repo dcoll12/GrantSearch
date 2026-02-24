@@ -43,8 +43,8 @@ MAX_MATCHES_TO_SAVE = None  # or set a number like 50, 100, etc.
 
 # Random delay range between saves (seconds) - keeps behavior less predictable
 # Min should not be set too low or you'll get rate limited
-DELAY_MIN = 5.5
-DELAY_MAX = 18
+DELAY_MIN = 10
+DELAY_MAX = 25
 
 # Wait time for page loads (seconds)
 PAGE_LOAD_TIMEOUT = 10
@@ -608,12 +608,12 @@ class InstrumentlAutoSaver:
             self._save_via_network_capture()
 
     def _save_via_dom_clicks(self, initial_elements):
-        """Click Save elements found by JS scan, re-fetching each iteration."""
-        # Bug fix: do NOT cap to_save at len(initial_elements).
-        # initial_elements only reflects what's visible at the top of the page
-        # right now.  As we scroll down, more grant cards enter the DOM.
-        # Use max_saves when set; otherwise treat the limit as effectively
-        # unlimited and rely on "no elements found + no more scroll" to stop.
+        """
+        Click Save buttons using the confirmed CSS selector.
+        After each click a new project loads automatically, so we simply
+        wait for .save-button-container > .btn to appear again before
+        clicking the next one.
+        """
         to_save = self.max_saves if self.max_saves else float('inf')
 
         limit_label = str(self.max_saves) if self.max_saves else "ALL"
@@ -623,48 +623,34 @@ class InstrumentlAutoSaver:
         print()
 
         failures = 0
-        consecutive_empty = 0  # how many scroll attempts found no new buttons
 
         while self.saved_count < to_save:
             try:
-                elements = self._find_save_elements_js()
+                # Wait for the CSS-confirmed Save button on the current page.
+                # This handles both the first load and each subsequent project
+                # that auto-loads after a click.
+                try:
+                    el = WebDriverWait(self.driver, PAGE_LOAD_TIMEOUT).until(
+                        EC.element_to_be_clickable(
+                            (By.CSS_SELECTOR, ".save-button-container > .btn")
+                        )
+                    )
+                except TimeoutException:
+                    print("   No Save button found — end of queue or page did not load.")
+                    break
 
-                if not elements:
-                    # No Save buttons visible at the current scroll position.
-                    # Scroll down to bring more grant cards into the viewport.
-                    prev_height = self.driver.execute_script("return window.pageYOffset")
-                    self.driver.execute_script(
-                        "window.scrollBy({top: window.innerHeight * 0.8, behavior: 'smooth'});")
-                    time.sleep(random.uniform(1.2, 2.0))
-                    new_height = self.driver.execute_script("return window.pageYOffset")
-
-                    if new_height == prev_height:
-                        # Reached the bottom — no more grants to load.
-                        print("   No more Save elements on page (reached bottom).")
-                        break
-
-                    consecutive_empty += 1
-                    if consecutive_empty >= 5:
-                        print("   No Save elements found after multiple scrolls — stopping.")
-                        break
-                    continue
-
-                consecutive_empty = 0
-                el = elements[0]
                 idx = f"[{self.saved_count + 1}]"
                 print(f"{idx} 💾 Saving match...", end='', flush=True)
 
                 self.driver.execute_script(
                     "arguments[0].scrollIntoView({behavior:'smooth',block:'center'});", el)
-                time.sleep(random.uniform(0.3, 0.8))
+                time.sleep(random.uniform(0.3, 0.7))
 
                 # Click via JS (most reliable across React portals)
                 self.driver.execute_script("arguments[0].click();", el)
                 self.saved_count += 1
                 failures = 0
                 print(f" ✓ Saved! (Total: {self.saved_count})")
-
-                time.sleep(random.uniform(0.4, 0.8))
 
                 if self.saved_count < to_save:
                     self._random_delay()
@@ -680,9 +666,8 @@ class InstrumentlAutoSaver:
                 failures += 1
                 print(f" ✗ Error: {e}")
                 if failures >= 5:
-                    print("   Too many consecutive DOM failures — switching to network capture.")
-                    self._save_via_network_capture()
-                    return
+                    print("   Too many consecutive failures — stopping.")
+                    break
                 time.sleep(1)
                 continue
 
