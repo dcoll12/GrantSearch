@@ -31,8 +31,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     TimeoutException, NoSuchElementException, StaleElementReferenceException
 )
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
 
 # ==============================================================================
 # CONFIGURATION - UPDATE THESE VALUES
@@ -244,21 +244,19 @@ class InstrumentlAutoSaver:
         
         try:
             # Try using webdriver-manager (easier)
-            from webdriver_manager.chrome import ChromeDriverManager
-            service = Service(ChromeDriverManager().install())
+            from webdriver_manager.firefox import GeckoDriverManager
+            service = Service(GeckoDriverManager().install())
         except ImportError:
-            # Fallback to manual ChromeDriver
-            print("⚠️  webdriver-manager not installed. Using system ChromeDriver.")
+            # Fallback to system geckodriver
+            print("⚠️  webdriver-manager not installed. Using system geckodriver.")
             print("   Install with: pip install webdriver-manager")
-            service = Service()  # Assumes chromedriver is in PATH
-        
+            service = Service()  # Assumes geckodriver is in PATH
+
         options = Options()
         # Uncomment the line below to run headless (no browser window)
         # options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        
-        self.driver = webdriver.Chrome(service=service, options=options)
+
+        self.driver = webdriver.Firefox(service=service, options=options)
         self.driver.maximize_window()
         self.wait = WebDriverWait(self.driver, PAGE_LOAD_TIMEOUT)
         
