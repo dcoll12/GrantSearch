@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Instrumentl Auto-Save Bookmarklet</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+      padding: 40px 20px;
+      max-width: 720px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+    h1 { font-size: 1.6rem; margin-bottom: 6px; color: #6366f1; }
+    .subtitle { color: #64748b; margin-bottom: 32px; }
+    h2 { font-size: 1.05rem; font-weight: 700; margin: 28px 0 10px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .drag-zone {
+      background: #ede9fe;
+      border: 2px dashed #6366f1;
+      border-radius: 10px;
+      padding: 24px;
+      text-align: center;
+      margin: 16px 0;
+    }
+    .drag-zone p { color: #64748b; font-size: 13px; margin-bottom: 14px; }
+    a.bookmarklet {
+      display: inline-block;
+      background: #6366f1;
+      color: #fff;
+      padding: 12px 28px;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: grab;
+      user-select: none;
+      box-shadow: 0 2px 8px rgba(99,102,241,.35);
+    }
+    a.bookmarklet:active { cursor: grabbing; }
+    .steps { padding-left: 20px; }
+    .steps li { margin-bottom: 10px; }
+    .steps li code {
+      background: #f1f5f9;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    textarea {
+      width: 100%;
+      height: 110px;
+      font-family: monospace;
+      font-size: 11px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px;
+      resize: vertical;
+      background: #f8fafc;
+      color: #334155;
+    }
+    button.copy-btn {
+      margin-top: 10px;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      padding: 8px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    button.copy-btn:hover { background: #4f46e5; }
+    .note {
+      background: #fef9c3;
+      border-left: 4px solid #eab308;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      color: #713f12;
+    }
+    .badge {
+      display: inline-block;
+      background: #dcfce7;
+      color: #166534;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🤖 Instrumentl Auto-Save Bookmarklet</h1>
+  <p class="subtitle">One-click bulk-saving for Instrumentl matches — works in any modern browser, no install required.</p>
+
+  <!-- DRAG TO INSTALL -->
+  <div class="card">
+    <h2>Option A — Drag to install <span class="badge">Easiest</span></h2>
+    <div class="drag-zone">
+      <p>Drag the button below to your browser's <strong>Bookmarks Bar</strong>.</p>
+      <!-- BOOKMARKLET HREF — minified one-liner -->
+      <a class="bookmarklet" href="javascript:(function(){if(window.__iasRunning){window.__iasRunning=false;return;}window.__iasRunning=true;var MIN=10000,MAX=25000,saved=0;var box=document.createElement('div');box.style.cssText='position:fixed;top:12px;right:12px;z-index:2147483647;background:#1e293b;color:#f8fafc;padding:14px 18px;border-radius:10px;font:13px/1.6 system-ui,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.45);min-width:230px;max-width:300px';box.innerHTML='<b style=&quot;font-size:14px&quot;>🤖 Instrumentl Auto-Save</b><div id=&quot;__ias_msg&quot; style=&quot;margin:6px 0 10px;color:#94a3b8&quot;>Starting\u2026</div><button id=&quot;__ias_stop&quot; style=&quot;background:#ef4444;border:0;color:#fff;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px&quot;>\u23f9 Stop</button>';document.body.appendChild(box);var msgEl=document.getElementById('__ias_msg');function setMsg(s){msgEl.textContent=s;}document.getElementById('__ias_stop').onclick=function(){window.__iasRunning=false;setMsg('Stopped. Saved '+saved+' grant(s).');setTimeout(function(){box.remove();},3000);};function waitForBtn(t){return new Promise(function(res,rej){var d=Date.now()+t,i=setInterval(function(){var e=document.querySelector('.save-button-container > .btn');if(e&&e.offsetParent!==null){clearInterval(i);res(e);}else if(Date.now()>d){clearInterval(i);rej(new Error('timeout'));}},600);});}function countdownDelay(ms){return new Promise(function(resolve){var end=Date.now()+ms,t=setInterval(function(){if(!window.__iasRunning){clearInterval(t);resolve();return;}var s=Math.ceil((end-Date.now())/1000);if(s<=0){clearInterval(t);resolve();}else setMsg('Saved '+saved+'. Next in '+s+'s\u2026');},1000);});}(async function loop(){while(window.__iasRunning){try{setMsg('Waiting for Save button\u2026');var el=await waitForBtn(20000);if(!window.__iasRunning)break;saved++;setMsg('Clicking Save #'+saved+'\u2026');el.scrollIntoView({behavior:'smooth',block:'center'});await new Promise(function(r){setTimeout(r,400);});el.click();await countdownDelay(Math.random()*(MAX-MIN)+MIN);}catch(e){setMsg('Done! Saved '+saved+' grant(s).');window.__iasRunning=false;setTimeout(function(){box.remove();},6000);break;}}})();})();">
+        🤖 Instrumentl Auto-Save
+      </a>
+    </div>
+    <p style="font-size:13px;color:#64748b;">
+      If your bookmarks bar isn't visible: <strong>Chrome</strong> — Ctrl+Shift+B &nbsp;|&nbsp;
+      <strong>Firefox</strong> — View → Toolbars → Bookmarks Toolbar &nbsp;|&nbsp;
+      <strong>Edge</strong> — Ctrl+Shift+B
+    </p>
+  </div>
+
+  <!-- MANUAL INSTALL -->
+  <div class="card">
+    <h2>Option B — Create bookmark manually</h2>
+    <ol class="steps">
+      <li>Copy the entire code below.</li>
+      <li>In your browser, create a new bookmark (right-click the bookmarks bar → <code>Add page…</code> or <code>Add bookmark…</code>).</li>
+      <li>Set the <strong>Name</strong> to anything (e.g. <em>Instrumentl Auto-Save</em>).</li>
+      <li>Paste the copied code into the <strong>URL / Address</strong> field.</li>
+      <li>Save.</li>
+    </ol>
+    <br>
+    <textarea id="bm-code" readonly></textarea>
+    <br>
+    <button class="copy-btn" onclick="copyCode()">📋 Copy to clipboard</button>
+    <span id="copy-confirm" style="margin-left:12px;color:#16a34a;font-size:13px;display:none;">Copied!</span>
+  </div>
+
+  <!-- HOW TO USE -->
+  <div class="card">
+    <h2>How to use</h2>
+    <ol class="steps">
+      <li>Log in to Instrumentl and navigate to your project's <strong>Matches</strong> tab.</li>
+      <li>Click the <strong>🤖 Instrumentl Auto-Save</strong> bookmark.</li>
+      <li>A status badge appears in the top-right corner of the page.</li>
+      <li>The script clicks Save on each grant and waits <strong>10–25 seconds</strong> (random) before the next one.</li>
+      <li>Click <strong>⏹ Stop</strong> at any time to pause.</li>
+      <li>The script stops automatically when there are no more Save buttons.</li>
+    </ol>
+    <br>
+    <div class="note">
+      ⚠️ Clicking the bookmark a second time while it's running will <strong>stop</strong> it (acts as a toggle).
+    </div>
+  </div>
+
+  <script>
+    // Populate the textarea with the same href as the bookmarklet link
+    var link = document.querySelector('a.bookmarklet');
+    document.getElementById('bm-code').value = link.getAttribute('href');
+
+    function copyCode() {
+      var ta = document.getElementById('bm-code');
+      ta.select();
+      document.execCommand('copy');
+      var confirm = document.getElementById('copy-confirm');
+      confirm.style.display = 'inline';
+      setTimeout(function() { confirm.style.display = 'none'; }, 2000);
+    }
+  </script>
+
+</body>
+</html>
