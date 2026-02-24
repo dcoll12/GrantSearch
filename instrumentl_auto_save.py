@@ -343,9 +343,9 @@ class InstrumentlAutoSaver:
             scrolls += 1
             print(f"   Scroll {scrolls}/{MAX_SCROLLS}")
 
-        # Scroll back to top
-        self.driver.execute_script("window.scrollTo(0, 0);")
-        time.sleep(random.uniform(0.8, 1.5))
+        # Do NOT scroll back to the top — Instrumentl uses virtual rendering and
+        # will un-render grant cards that leave the viewport.  We start saving
+        # from wherever we are (or the top of the page if no scrolling occurred).
         
     # ------------------------------------------------------------------
     # Element discovery — JavaScript-based (handles React custom elements)
@@ -591,24 +591,49 @@ class InstrumentlAutoSaver:
 
     def _save_via_dom_clicks(self, initial_elements):
         """Click Save elements found by JS scan, re-fetching each iteration."""
-        to_save = self.max_saves if self.max_saves else len(initial_elements)
+        # Bug fix: do NOT cap to_save at len(initial_elements).
+        # initial_elements only reflects what's visible at the top of the page
+        # right now.  As we scroll down, more grant cards enter the DOM.
+        # Use max_saves when set; otherwise treat the limit as effectively
+        # unlimited and rely on "no elements found + no more scroll" to stop.
+        to_save = self.max_saves if self.max_saves else float('inf')
 
-        print(f"\n📊 Will save up to {to_save} matches")
+        limit_label = str(self.max_saves) if self.max_saves else "ALL"
+        print(f"\n📊 Will save up to {limit_label} matches")
         print(f"   Delay between saves: {self.delay_min}–{self.delay_max}s (randomized)\n")
         input("Press ENTER to start saving (or Ctrl+C to cancel)...")
         print()
 
         failures = 0
+        consecutive_empty = 0  # how many scroll attempts found no new buttons
 
         while self.saved_count < to_save:
             try:
                 elements = self._find_save_elements_js()
-                if not elements:
-                    print("   No more Save elements on page.")
-                    break
 
+                if not elements:
+                    # No Save buttons visible at the current scroll position.
+                    # Scroll down to bring more grant cards into the viewport.
+                    prev_height = self.driver.execute_script("return window.pageYOffset")
+                    self.driver.execute_script(
+                        "window.scrollBy({top: window.innerHeight * 0.8, behavior: 'smooth'});")
+                    time.sleep(random.uniform(1.2, 2.0))
+                    new_height = self.driver.execute_script("return window.pageYOffset")
+
+                    if new_height == prev_height:
+                        # Reached the bottom — no more grants to load.
+                        print("   No more Save elements on page (reached bottom).")
+                        break
+
+                    consecutive_empty += 1
+                    if consecutive_empty >= 5:
+                        print("   No Save elements found after multiple scrolls — stopping.")
+                        break
+                    continue
+
+                consecutive_empty = 0
                 el = elements[0]
-                idx = f"[{self.saved_count + 1}/{to_save}]"
+                idx = f"[{self.saved_count + 1}]"
                 print(f"{idx} 💾 Saving match...", end='', flush=True)
 
                 self.driver.execute_script(
