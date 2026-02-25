@@ -492,6 +492,153 @@ class InstrumentlAPI:
 
 
 # ==============================================================================
+# GRANTS.GOV API CLIENT
+# ==============================================================================
+
+class GrantsGovAPI:
+    """Client for the Grants.gov public REST API.
+
+    The search2 and fetchOpportunity endpoints require no authentication.
+    """
+
+    BASE_URL = "https://api.grants.gov/v1/api"
+
+    def search(
+        self,
+        keyword="",
+        opp_num="",
+        eligibilities="",
+        agencies="",
+        opp_statuses="forecasted|posted",
+        aln="",
+        funding_categories="",
+        funding_instruments="",
+        rows=25,
+        start_record_num=0,
+    ):
+        """Search grant opportunities via the search2 endpoint.
+
+        Returns the ``data`` dict from the API response, which includes
+        ``oppHits``, ``hitCount``, and filter facets.
+        """
+        import requests
+
+        payload = {
+            "rows": rows,
+            "keyword": keyword,
+            "oppNum": opp_num,
+            "eligibilities": eligibilities,
+            "agencies": agencies,
+            "oppStatuses": opp_statuses,
+            "aln": aln,
+            "fundingCategories": funding_categories,
+            "fundingInstruments": funding_instruments,
+            "startRecordNum": start_record_num,
+        }
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/search2",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            result = response.json()
+            if result.get("errorcode", 0) != 0:
+                raise Exception(f"Grants.gov API error: {result.get('msg', 'Unknown error')}")
+            return result.get("data", {})
+        except requests.exceptions.ConnectionError:
+            raise Exception("Connection Error: Could not connect to Grants.gov API.")
+        except requests.exceptions.Timeout:
+            raise Exception("Timeout: Grants.gov API did not respond in time.")
+        except requests.exceptions.HTTPError as e:
+            raise Exception(f"HTTP Error from Grants.gov: {e}")
+
+    def fetch_opportunity(self, opportunity_id):
+        """Fetch full details for a single opportunity via fetchOpportunity.
+
+        Returns the ``data`` dict from the API response.
+        """
+        import requests
+
+        payload = {"opportunityId": int(opportunity_id)}
+        try:
+            response = requests.post(
+                f"{self.BASE_URL}/fetchOpportunity",
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            result = response.json()
+            if result.get("errorcode", 0) != 0:
+                raise Exception(f"Grants.gov API error: {result.get('msg', 'Unknown error')}")
+            return result.get("data", {})
+        except requests.exceptions.ConnectionError:
+            raise Exception("Connection Error: Could not connect to Grants.gov API.")
+        except requests.exceptions.Timeout:
+            raise Exception("Timeout: Grants.gov API did not respond in time.")
+        except requests.exceptions.HTTPError as e:
+            raise Exception(f"HTTP Error from Grants.gov: {e}")
+
+
+def build_grants_gov_dataframe(opp_hits):
+    """Convert a list of Grants.gov ``oppHits`` into a pandas DataFrame."""
+    import pandas as pd
+
+    rows = []
+    for opp in opp_hits:
+        aln_list = opp.get("alnList") or opp.get("alnist") or []
+        rows.append({
+            "ID": opp.get("id", ""),
+            "Number": opp.get("number", ""),
+            "Title": opp.get("title", ""),
+            "Agency Code": opp.get("agencyCode", ""),
+            "Agency": opp.get("agencyName", ""),
+            "Open Date": opp.get("openDate", ""),
+            "Close Date": opp.get("closeDate", ""),
+            "Status": opp.get("oppStatus", ""),
+            "Document Type": opp.get("docType", ""),
+            "ALN": ", ".join(aln_list) if aln_list else "",
+        })
+    return pd.DataFrame(rows)
+
+
+def grants_gov_opp_to_grant_format(opp):
+    """Convert a Grants.gov opportunity hit to the internal grant metadata format.
+
+    The returned dict is compatible with ``TFIDFMatcher`` and
+    ``build_results_dataframe`` so Grants.gov results can be matched
+    alongside Instrumentl grants.
+    """
+    aln_list = opp.get("alnList") or opp.get("alnist") or []
+    opp_id = opp.get("id", "")
+    grant_url = f"https://www.grants.gov/search-results-detail/{opp_id}" if opp_id else ""
+    overview_parts = [
+        f"Agency: {opp.get('agencyName', '')}",
+        f"Status: {opp.get('oppStatus', '')}",
+        f"Document type: {opp.get('docType', '')}",
+    ]
+    if aln_list:
+        overview_parts.append(f"ALN: {', '.join(aln_list)}")
+    if opp.get("openDate"):
+        overview_parts.append(f"Open date: {opp['openDate']}")
+    return {
+        "name": opp.get("title", ""),
+        "id": opp_id,
+        "overview": ". ".join(overview_parts),
+        "funder": {"name": opp.get("agencyName", "")},
+        "next_deadline_date": opp.get("closeDate", ""),
+        "status": opp.get("oppStatus", ""),
+        "slug": "",
+        "_grant_url": grant_url,
+        "_source": "grants_gov",
+        "_grants_gov_number": opp.get("number", ""),
+        "_grants_gov_agency_code": opp.get("agencyCode", ""),
+    }
+
+
+# ==============================================================================
 # PROJECT FILTER
 # ==============================================================================
 
@@ -567,8 +714,11 @@ def build_results_dataframe(match_results):
         funder_name = funder.get('name', '') if isinstance(funder, dict) else str(funder)
         cycles = grant.get('funding_cycles', [])
         funding_cycle = cycles[0].get('interval', '') if cycles else ''
-        slug = grant.get('slug', '')
-        grant_url = f"https://www.instrumentl.com/grants/{slug}" if slug else ''
+        # Support an explicit URL override (e.g. Grants.gov links) or fall back to Instrumentl slug
+        grant_url = grant.get('_grant_url', '')
+        if not grant_url:
+            slug = grant.get('slug', '')
+            grant_url = f"https://www.instrumentl.com/grants/{slug}" if slug else ''
         rows.append({
             'Rank': rank,
             'Score': round(result['score'], 4),
