@@ -22,11 +22,14 @@ from datetime import datetime
 
 from core import (
     InstrumentlAPI,
+    GrantsGovAPI,
     DocumentProcessor,
     TextChunker,
     TFIDFMatcher,
     grant_matches_location,
     build_results_dataframe,
+    build_grants_gov_dataframe,
+    grants_gov_opp_to_grant_format,
     load_config,
     save_config,
 )
@@ -54,6 +57,9 @@ defaults = {
     "uploaded_docs": [],   # list of {"name": str, "text": str}
     "match_results": [],
     "navigate_to_tab": None,
+    # Grants.gov search state
+    "gg_search_results": {},   # raw API data dict (oppHits, hitCount, facets…)
+    "gg_added_ids": set(),     # set of opportunity IDs already added to grants_data
 }
 for key, val in defaults.items():
     if key not in st.session_state:
@@ -148,11 +154,12 @@ st.divider()
 # TABS
 # ==============================================================================
 
-tab_docs, tab_fetch, tab_match, tab_results = st.tabs([
+tab_docs, tab_fetch, tab_gg, tab_match, tab_results = st.tabs([
     "📁 1. Upload Documents",
     "☁️ 2. Fetch Grants",
-    "🔍 3. Run Matching",
-    "📊 4. Results Dashboard",
+    "🏛️ 3. Grants.gov Search",
+    "🔍 4. Run Matching",
+    "📊 5. Results Dashboard",
 ])
 
 # ------------------------------------------------------------------------------
@@ -505,13 +512,284 @@ with tab_fetch:
                 components.html(
                     """<script>
                     var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-                    if (tabs.length > 2) tabs[2].click();
+                    if (tabs.length > 3) tabs[3].click();
                     </script>""",
                     height=0,
                 )
 
 # ------------------------------------------------------------------------------
-# TAB 3 — RUN MATCHING
+# TAB 3 — GRANTS.GOV SEARCH
+# ------------------------------------------------------------------------------
+
+with tab_gg:
+    st.header("Search Grants.gov")
+    st.caption(
+        "Grants.gov is a free public database of U.S. federal grant opportunities. "
+        "No API key or login is required."
+    )
+
+    # ── Search form ───────────────────────────────────────────────────────────
+    with st.form("gg_search_form"):
+        st.subheader("Search Parameters")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            gg_keyword = st.text_input(
+                "Keyword",
+                placeholder="e.g. health equity, rural housing, STEM",
+                help="Free-text keyword search across opportunity titles and descriptions.",
+            )
+            gg_agencies = st.text_input(
+                "Agency Code(s)",
+                placeholder="e.g. HHS, DOE, NSF",
+                help="Comma-separated agency codes. Leave blank for all agencies.",
+            )
+            gg_aln = st.text_input(
+                "ALN / CFDA Number",
+                placeholder="e.g. 93.866",
+                help="Assistance Listing Number (formerly CFDA). Leave blank to search all.",
+            )
+        with col2:
+            gg_opp_num = st.text_input(
+                "Opportunity Number",
+                placeholder="e.g. HHS-2024-ACF-OCS-EE-0016",
+                help="Exact opportunity number if known.",
+            )
+            gg_funding_cats = st.text_input(
+                "Funding Category Code(s)",
+                placeholder="e.g. HL, ED, ST",
+                help="See Grants.gov for a full list of category codes.",
+            )
+            gg_rows = st.number_input(
+                "Max results",
+                min_value=1,
+                max_value=100,
+                value=25,
+                step=5,
+                help="Number of results to return (max 100 per request).",
+            )
+
+        gg_statuses = st.multiselect(
+            "Opportunity Status",
+            options=["forecasted", "posted", "closed", "archived"],
+            default=["forecasted", "posted"],
+            help="Filter by opportunity lifecycle status.",
+        )
+
+        gg_submitted = st.form_submit_button("🔎 Search Grants.gov", type="primary", use_container_width=True)
+
+    if gg_submitted:
+        if not gg_keyword and not gg_opp_num and not gg_agencies and not gg_aln and not gg_funding_cats:
+            st.warning("Enter at least one search parameter (keyword, agency, ALN, etc.).")
+        else:
+            opp_status_str = "|".join(gg_statuses) if gg_statuses else "forecasted|posted"
+            with st.spinner("Searching Grants.gov…"):
+                try:
+                    gg_api = GrantsGovAPI()
+                    data = gg_api.search(
+                        keyword=gg_keyword,
+                        opp_num=gg_opp_num,
+                        agencies=gg_agencies,
+                        aln=gg_aln,
+                        funding_categories=gg_funding_cats,
+                        opp_statuses=opp_status_str,
+                        rows=int(gg_rows),
+                    )
+                    st.session_state.gg_search_results = data
+                    hit_count = data.get("hitCount", 0)
+                    returned = len(data.get("oppHits", []))
+                    st.success(f"Found **{hit_count:,}** total opportunities — showing top **{returned}**.")
+                except Exception as e:
+                    st.error(str(e))
+                    st.session_state.gg_search_results = {}
+
+    # ── Results display ───────────────────────────────────────────────────────
+    gg_data = st.session_state.get("gg_search_results", {})
+    opp_hits = gg_data.get("oppHits", [])
+
+    if opp_hits:
+        st.divider()
+        st.subheader(f"Results ({len(opp_hits)} shown)")
+
+        gg_df = build_grants_gov_dataframe(opp_hits)
+
+        # Add a Grants.gov link column
+        gg_df["Link"] = gg_df["ID"].apply(
+            lambda oid: f"https://www.grants.gov/search-results-detail/{oid}" if oid else ""
+        )
+
+        st.dataframe(
+            gg_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "ID": st.column_config.TextColumn(width="small"),
+                "Number": st.column_config.TextColumn(width="medium"),
+                "Title": st.column_config.TextColumn(width="large"),
+                "Agency Code": st.column_config.TextColumn(width="small"),
+                "Agency": st.column_config.TextColumn(width="medium"),
+                "Open Date": st.column_config.TextColumn(width="small"),
+                "Close Date": st.column_config.TextColumn(width="small"),
+                "Status": st.column_config.TextColumn(width="small"),
+                "Document Type": st.column_config.TextColumn(width="small"),
+                "ALN": st.column_config.TextColumn(width="small"),
+                "Link": st.column_config.LinkColumn("Grants.gov", width="small", display_text="Open ↗"),
+            },
+        )
+
+        # ── Facets ────────────────────────────────────────────────────────────
+        facet_cols = st.columns(3)
+        for col, (label, key) in zip(
+            facet_cols,
+            [
+                ("Status Breakdown", "oppStatusOptions"),
+                ("Funding Categories", "fundingCategories"),
+                ("Funding Instruments", "fundingInstruments"),
+            ],
+        ):
+            facet_items = gg_data.get(key, [])
+            if facet_items:
+                with col:
+                    with st.expander(label, expanded=False):
+                        for item in facet_items:
+                            st.markdown(f"- **{item.get('label', '')}**: {item.get('count', 0)}")
+
+        st.divider()
+
+        # ── Add to matching pool ───────────────────────────────────────────────
+        st.subheader("Add to Matching Pool")
+        st.caption(
+            "Add these Grants.gov opportunities to your grants pool so they can be "
+            "matched against your uploaded documents in the Run Matching tab."
+        )
+
+        already_added = st.session_state.get("gg_added_ids", set())
+        new_hits = [h for h in opp_hits if str(h.get("id", "")) not in already_added]
+        already_count = len(opp_hits) - len(new_hits)
+
+        if already_count:
+            st.info(f"{already_count} opportunity/opportunities from this result set already in the matching pool.")
+
+        if new_hits:
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button(
+                    f"➕ Add All {len(new_hits)} to Matching Pool",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    converted = [grants_gov_opp_to_grant_format(h) for h in new_hits]
+                    st.session_state.grants_data.extend(converted)
+                    for h in new_hits:
+                        st.session_state.gg_added_ids.add(str(h.get("id", "")))
+                    st.success(
+                        f"✅ Added {len(converted)} Grants.gov opportunities to the matching pool "
+                        f"({len(st.session_state.grants_data)} total grants)."
+                    )
+                    st.rerun()
+        else:
+            st.success("All results from this search are already in the matching pool.")
+
+        if st.session_state.grants_data:
+            st.info(
+                f"**Matching pool:** {len(st.session_state.grants_data)} grants total. "
+                "Go to the **Run Matching** tab to match them against your documents."
+            )
+
+        st.divider()
+
+        # ── Opportunity detail viewer ──────────────────────────────────────────
+        st.subheader("View Opportunity Details")
+        st.caption("Fetch the full synopsis for any opportunity in the results above.")
+
+        opp_options = {
+            f"{h.get('number', h.get('id', ''))} — {h.get('title', '')[:60]}": h.get("id", "")
+            for h in opp_hits
+        }
+        selected_label = st.selectbox("Select an opportunity", list(opp_options.keys()))
+
+        if st.button("📄 Fetch Full Details", use_container_width=True):
+            selected_id = opp_options[selected_label]
+            if selected_id:
+                with st.spinner("Fetching opportunity details…"):
+                    try:
+                        gg_api = GrantsGovAPI()
+                        detail = gg_api.fetch_opportunity(selected_id)
+                        synopsis = detail.get("synopsis", {})
+
+                        st.markdown(f"### {detail.get('opportunityTitle', '')}")
+                        d1, d2, d3 = st.columns(3)
+                        d1.metric("Opportunity ID", detail.get("id", ""))
+                        d2.metric("Agency", synopsis.get("agencyName", detail.get("owningAgencyCode", "")))
+                        d3.metric("Status", detail.get("docType", "").capitalize())
+
+                        if synopsis:
+                            dcol1, dcol2 = st.columns(2)
+                            with dcol1:
+                                st.markdown(f"**Posting Date:** {synopsis.get('postingDate', 'N/A')}")
+                                cost_sharing = "Yes" if synopsis.get("costSharing") else "No"
+                                st.markdown(f"**Cost Sharing:** {cost_sharing}")
+                                ceiling = synopsis.get("awardCeilingFormatted") or synopsis.get("awardCeiling", "")
+                                floor = synopsis.get("awardFloorFormatted") or synopsis.get("awardFloor", "")
+                                if ceiling:
+                                    st.markdown(f"**Award Ceiling:** ${ceiling}")
+                                if floor:
+                                    st.markdown(f"**Award Floor:** ${floor}")
+                            with dcol2:
+                                contact_name = synopsis.get("agencyContactName", "")
+                                contact_email = synopsis.get("agencyContactEmail", "")
+                                if contact_name:
+                                    st.markdown(f"**Contact:** {contact_name}")
+                                if contact_email:
+                                    st.markdown(f"**Email:** {contact_email}")
+
+                            desc_raw = synopsis.get("synopsisDesc", "")
+                            if desc_raw:
+                                # Strip basic HTML tags for display
+                                import re as _re
+                                desc_clean = _re.sub(r"<[^>]+>", " ", desc_raw).strip()
+                                st.markdown("**Description:**")
+                                st.write(desc_clean)
+
+                            app_types = synopsis.get("applicantTypes", [])
+                            if app_types:
+                                st.markdown(
+                                    "**Eligible Applicants:** "
+                                    + ", ".join(t.get("description", "") for t in app_types)
+                                )
+
+                            instruments = synopsis.get("fundingInstruments", [])
+                            cats = synopsis.get("fundingActivityCategories", [])
+                            if instruments:
+                                st.markdown(
+                                    "**Funding Instruments:** "
+                                    + ", ".join(i.get("description", "") for i in instruments)
+                                )
+                            if cats:
+                                st.markdown(
+                                    "**Funding Categories:** "
+                                    + ", ".join(c.get("description", "") for c in cats)
+                                )
+
+                        alns = detail.get("alns", [])
+                        if alns:
+                            st.markdown(
+                                "**ALN(s):** "
+                                + ", ".join(
+                                    f"{a.get('alnNumber', '')} — {a.get('programTitle', '')}"
+                                    for a in alns
+                                )
+                            )
+
+                        opp_url = f"https://www.grants.gov/search-results-detail/{selected_id}"
+                        st.markdown(f"[🔗 View on Grants.gov]({opp_url})")
+
+                    except Exception as e:
+                        st.error(str(e))
+
+
+# ------------------------------------------------------------------------------
+# TAB 4 — RUN MATCHING
 # ------------------------------------------------------------------------------
 
 with tab_match:
@@ -519,9 +797,9 @@ with tab_match:
 
     ready = st.session_state.uploaded_docs and st.session_state.grants_data
     if not st.session_state.uploaded_docs:
-        st.warning("Upload and process documents in Tab 1 first.")
+        st.warning("Upload and process documents in **Tab 1** first.")
     if not st.session_state.grants_data:
-        st.warning("Fetch grants in Tab 2 first.")
+        st.warning("Fetch grants from **Tab 2** (Instrumentl) or **Tab 3** (Grants.gov) first.")
 
     if ready:
         col1, col2, col3 = st.columns(3)
