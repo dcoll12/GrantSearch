@@ -58,6 +58,7 @@ defaults = {
     "match_results": [],
     "navigate_to_tab": None,
     # Grants.gov search state
+    "gg_keyword": "",          # pre-populated from document keywords
     "gg_search_results": {},   # raw API data dict (oppHits, hitCount, facets…)
     "gg_added_ids": set(),     # set of opportunity IDs already added to grants_data
 }
@@ -281,6 +282,19 @@ with tab_docs:
             st.session_state.uploaded_docs = docs
 
             if docs:
+                # Extract top keywords from the uploaded documents and pre-populate
+                # the Grants.gov keyword search field.
+                _km = TFIDFMatcher()
+                _chunks = []
+                for _d in docs:
+                    _chunks.extend(TextChunker.chunk_text(_d["text"], chunk_size=500))
+                if _chunks:
+                    _km.add_documents(_chunks)
+                    _km.build_index()
+                    _combined = " ".join(_d["text"] for _d in docs)
+                    _top = _km.get_top_terms(_combined, top_n=5)
+                    st.session_state.gg_keyword = " ".join(_top)
+
                 st.success(f"✅ Processed {len(docs)} document(s) successfully.")
             for err in errors:
                 st.warning(f"⚠️ {err}")
@@ -560,6 +574,7 @@ with tab_gg:
                 "Keyword",
                 placeholder="e.g. health equity, rural housing, STEM",
                 help="Free-text keyword search across opportunity titles and descriptions.",
+                key="gg_keyword",
             )
             gg_agencies = st.text_input(
                 "Agency Code(s)",

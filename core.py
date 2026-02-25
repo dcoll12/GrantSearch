@@ -304,6 +304,13 @@ class TFIDFMatcher:
                 vector[term] = tf_value * idf_value
         return vector
 
+    def get_top_terms(self, text, top_n=5):
+        """Return the top_n highest TF-IDF scoring terms from *text* against the built index."""
+        tokens = self._tokenize(text)
+        vector = self._calculate_tfidf_vector(tokens)
+        ranked = sorted(vector.items(), key=lambda x: x[1], reverse=True)
+        return [term for term, _ in ranked[:top_n]]
+
     def _cosine_similarity(self, vec1, vec2):
         common_terms = set(vec1.keys()) & set(vec2.keys())
         if not common_terms:
