@@ -298,8 +298,8 @@ with tab_docs:
 
         st.divider()
         st.success("✅ Documents ready.")
-        if st.button("☁️ Go to Fetch Grants →", type="primary", use_container_width=True):
-            st.session_state.navigate_to_tab = 2
+        if st.button("🤖 Go to Auto-Save Setup →", type="primary", use_container_width=True):
+            st.session_state.navigate_to_tab = 1
             st.rerun()
 
 # ------------------------------------------------------------------------------
@@ -409,6 +409,11 @@ with tab_autosave:
         "6. The script stops automatically when there are no more Save buttons.\n"
         "7. Once done, return here and use **Tab 3 → Fetch Grants** to pull your saved grants."
     )
+
+    st.divider()
+    if st.button("☁️ Go to Fetch Grants →", type="primary", use_container_width=True):
+        st.session_state.navigate_to_tab = 2
+        st.rerun()
 
 # ------------------------------------------------------------------------------
 # TAB 3 — FETCH GRANTS
