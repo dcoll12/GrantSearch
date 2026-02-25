@@ -11,6 +11,20 @@ from collections import Counter
 import math
 from pathlib import Path
 
+__all__ = [
+    "load_config",
+    "save_config",
+    "DocumentProcessor",
+    "TextChunker",
+    "TFIDFMatcher",
+    "InstrumentlAPI",
+    "GrantsGovAPI",
+    "build_grants_gov_dataframe",
+    "grants_gov_opp_to_grant_format",
+    "grant_matches_location",
+    "build_results_dataframe",
+]
+
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
