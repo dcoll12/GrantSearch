@@ -572,9 +572,10 @@ with tab_gg:
         with col1:
             gg_keyword = st.text_input(
                 "Keyword",
+                value=st.session_state.get("gg_keyword", ""),
                 placeholder="e.g. health equity, rural housing, STEM",
-                help="Free-text keyword search across opportunity titles and descriptions.",
-                key="gg_keyword",
+                help="Free-text keyword search across opportunity titles and descriptions. "
+                     "Auto-filled from your uploaded documents.",
             )
             gg_agencies = st.text_input(
                 "Agency Code(s)",
@@ -616,6 +617,8 @@ with tab_gg:
         gg_submitted = st.form_submit_button("🔎 Search Grants.gov", type="primary", use_container_width=True)
 
     if gg_submitted:
+        # Persist the user's keyword edit so it survives reruns
+        st.session_state.gg_keyword = gg_keyword
         if not gg_keyword and not gg_opp_num and not gg_agencies and not gg_aln and not gg_funding_cats:
             st.warning("Enter at least one search parameter (keyword, agency, ALN, etc.).")
         else:
