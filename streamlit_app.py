@@ -233,8 +233,7 @@ with tab_docs:
         st.markdown(
             "**Step 1 — Enter your credentials in the left sidebar:**\n"
             "- Open the **⚙️ API Credentials** panel on the left.\n"
-            "- Paste your **API Key ID** and **API Private Key** "
-            "(found in your Instrumentl account under *Settings → API*).\n\n"
+            "- Paste your **API Key ID** and **API Private Key**.\n\n"
             "**Step 2 — Connect and save:**\n"
             "- Click **🔌 Connect** to verify your credentials.\n"
             "- Click **💾 Save** to store them so you don't have to re-enter them next time.\n\n"
