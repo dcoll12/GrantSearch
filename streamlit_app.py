@@ -231,6 +231,12 @@ with tab_docs:
 
     st.write("Upload PDFs, Word docs, Excel files, PowerPoints, CSVs, or plain text. "
              "The matcher reads the content and builds a profile of your organization.")
+    st.info(
+        "After selecting your files, click **📂 Process Documents** to extract the text. "
+        "Your documents are split into smaller chunks so the matching algorithm can compare "
+        "each section of your content against grants individually — this gives much more "
+        "accurate results than processing the whole document at once."
+    )
 
     uploaded_files = st.file_uploader(
         "Choose files",
@@ -458,6 +464,7 @@ with tab_fetch:
     else:
         # Project selector
         st.subheader("Project (optional)")
+        st.caption("Click **🔄 Refresh Projects** to load your Instrumentl projects, then select one before fetching.")
         if not st.session_state.projects:
             st.info("Click **🔄 Refresh Projects** to load your active projects from Instrumentl.")
         col1, col2 = st.columns([3, 1])
@@ -570,6 +577,11 @@ with tab_fetch:
                     height=0,
                 )
 
+        st.divider()
+        if st.button("📋 Optionally go to Grants.gov →", use_container_width=True):
+            st.session_state.navigate_to_tab = 3
+            st.rerun()
+
 # ------------------------------------------------------------------------------
 # TAB 4 — GRANTS.GOV SEARCH
 # ------------------------------------------------------------------------------
@@ -579,6 +591,12 @@ with tab_gg:
     st.caption(
         "Grants.gov is a free public database of U.S. federal grant opportunities. "
         "No API key or login is required."
+    )
+
+    st.info(
+        "The **Keyword** field below is automatically filled from your uploaded documents — "
+        "the top terms are extracted during document processing. You can edit them freely "
+        "before searching."
     )
 
     # ── Search form ───────────────────────────────────────────────────────────
@@ -844,6 +862,10 @@ with tab_gg:
                     except Exception as e:
                         st.error(str(e))
 
+    st.divider()
+    if st.button("🔍 Go to Run Matching →", type="primary", use_container_width=True):
+        st.session_state.navigate_to_tab = 4
+        st.rerun()
 
 # ------------------------------------------------------------------------------
 # TAB 5 — RUN MATCHING
