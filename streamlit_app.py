@@ -338,10 +338,26 @@ _BOOKMARKLET_JS = (
     "document.getElementById('__ias_stop').onclick=function(){"
     "window.__iasRunning=false;setMsg('Stopped. Saved '+saved+' grant(s).');"
     "setTimeout(function(){box.remove();},3000);};"
+    # ── robust multi-strategy Save button finder ──────────────────────────────
+    "function findSaveBtn(){"
+    # 1. original confirmed selector
+    "var el=document.querySelector('.save-button-container > .btn');"
+    "if(el&&el.offsetParent!==null)return el;"
+    # 2. text scan: any visible button/link/role=button whose own text is exactly "save"
+    "var tags=document.querySelectorAll('button,[role=\"button\"],a,[class*=\"save\"],[class*=\"Save\"]');"
+    "for(var i=0;i<tags.length;i++){"
+    "var t=tags[i];if(!t.offsetParent)continue;"
+    "var txt=(t.innerText||t.textContent||'').trim().toLowerCase();"
+    "if(txt==='save')return t;}"
+    # 3. aria-label fallback
+    "var al=document.querySelector('[aria-label=\"Save\"],[aria-label=\"save\"]');"
+    "if(al&&al.offsetParent!==null)return al;"
+    "return null;}"
+    # ─────────────────────────────────────────────────────────────────────────
     "function waitForBtn(t){return new Promise(function(res,rej){"
     "var d=Date.now()+t,i=setInterval(function(){"
-    "var e=document.querySelector('.save-button-container > .btn');"
-    "if(e&&e.offsetParent!==null){clearInterval(i);res(e);}"
+    "var e=findSaveBtn();"
+    "if(e){clearInterval(i);res(e);}"
     "else if(Date.now()>d){clearInterval(i);rej(new Error('timeout'));}},600);});}"
     "function countdownDelay(ms){return new Promise(function(resolve){"
     "var end=Date.now()+ms,t=setInterval(function(){"
@@ -353,7 +369,7 @@ _BOOKMARKLET_JS = (
     r"setMsg('Waiting for Save button\u2026');"
     "var el=await waitForBtn(20000);"
     "if(!window.__iasRunning)break;"
-    "saved++;setMsg('Clicking Save #'+saved+'\u2026');"
+    r"saved++;setMsg('Clicking Save #'+saved+'\u2026');"
     "el.scrollIntoView({behavior:'smooth',block:'center'});"
     "await new Promise(function(r){setTimeout(r,400);});"
     "el.click();"
@@ -572,9 +588,10 @@ with tab_gg:
         with col1:
             gg_keyword = st.text_input(
                 "Keyword",
+                value=st.session_state.get("gg_keyword", ""),
                 placeholder="e.g. health equity, rural housing, STEM",
-                help="Free-text keyword search across opportunity titles and descriptions.",
-                key="gg_keyword",
+                help="Free-text keyword search across opportunity titles and descriptions. "
+                     "Auto-filled from your uploaded documents.",
             )
             gg_agencies = st.text_input(
                 "Agency Code(s)",
@@ -616,6 +633,8 @@ with tab_gg:
         gg_submitted = st.form_submit_button("🔎 Search Grants.gov", type="primary", use_container_width=True)
 
     if gg_submitted:
+        # Persist the user's keyword edit so it survives reruns
+        st.session_state.gg_keyword = gg_keyword
         if not gg_keyword and not gg_opp_num and not gg_agencies and not gg_aln and not gg_funding_cats:
             st.warning("Enter at least one search parameter (keyword, agency, ALN, etc.).")
         else:
