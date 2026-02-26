@@ -229,6 +229,20 @@ def _launch_auto_save(project_id: str | None = None):
 with tab_docs:
     st.header("Upload Your Documents")
 
+    with st.expander("⚙️ First time? Connect your Instrumentl API", expanded=not st.session_state.api_connected):
+        st.markdown(
+            "**Step 1 — Enter your credentials in the left sidebar:**\n"
+            "- Open the **⚙️ API Credentials** panel on the left.\n"
+            "- Paste your **API Key ID** and **API Private Key** "
+            "(found in your Instrumentl account under *Settings → API*).\n\n"
+            "**Step 2 — Connect and save:**\n"
+            "- Click **🔌 Connect** to verify your credentials.\n"
+            "- Click **💾 Save** to store them so you don't have to re-enter them next time.\n\n"
+            "**Need to start over?**\n"
+            "- Use **🔄 Reset Session** at the bottom of the sidebar to clear all uploaded "
+            "documents, fetched grants, and match results."
+        )
+
     st.write("Upload PDFs, Word docs, Excel files, PowerPoints, CSVs, or plain text. "
              "The matcher reads the content and builds a profile of your organization.")
     st.info(
