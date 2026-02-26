@@ -417,7 +417,7 @@ with tab_autosave:
           </a>
         </div>
         """,
-        height=90,
+        height=130,
     )
 
     st.subheader("Option B — Copy & paste")
@@ -933,7 +933,9 @@ with tab_match:
 
     if st.session_state.match_results:
         st.success(f"✅ {len(st.session_state.match_results)} results ready.")
-        st.info("Click the **📊 4. Results Dashboard** tab above to view your matches.")
+        if st.button("📊 Go to Results Dashboard →", type="primary", use_container_width=True):
+            st.session_state.navigate_to_tab = 5
+            st.rerun()
 
 # ------------------------------------------------------------------------------
 # TAB 6 — RESULTS DASHBOARD
