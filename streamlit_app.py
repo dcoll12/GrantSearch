@@ -10,6 +10,7 @@ import io
 import sys
 import json
 import time
+import html as _html
 import platform
 import subprocess
 import tempfile
@@ -406,7 +407,7 @@ with tab_autosave:
             <span style="font-size:12px;">(Chrome/Edge: Ctrl+Shift+B &nbsp;|&nbsp;
             Firefox: View → Toolbars → Bookmarks Toolbar)</span>
           </p>
-          <a href="{_BOOKMARKLET_JS}"
+          <a href="{_html.escape(_BOOKMARKLET_JS)}"
              style="display:inline-block;background:#6366f1;color:#fff;
                     padding:11px 26px;border-radius:8px;text-decoration:none;
                     font-weight:700;font-size:14px;cursor:grab;
