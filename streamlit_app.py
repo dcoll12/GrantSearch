@@ -7,6 +7,7 @@ Deploy to Streamlit Community Cloud (share.streamlit.io) for free.
 
 import os
 import io
+import re
 import sys
 import json
 import time
@@ -1028,14 +1029,29 @@ with tab_results:
         }
 
         def _parse_locations(locations_col):
-            """Return sorted (states, counties) lists from the Locations column."""
+            """Return sorted (states, counties) lists from the Locations column.
+
+            Handles formats like:
+              "Los Angeles County, California"  (County, State in one entry)
+              "Cook County, Illinois"
+              "Indiana"                          (bare state)
+              "Counties in Illinois: Cook County, DuPage County"
+            """
             states, counties = set(), set()
             for cell in locations_col.dropna():
-                for token in (t.strip() for t in cell.split(";") if t.strip()):
-                    if token in _US_STATES:
-                        states.add(token)
-                    elif "county" in token.lower():
-                        counties.add(token)
+                # Locations column joins list entries with "; "
+                for entry in (t.strip() for t in cell.split(";") if t.strip()):
+                    # Normalise "Counties in X: Y" → split on ":" first
+                    parts_colon = [p.strip() for p in entry.split(":") if p.strip()]
+                    for segment in parts_colon:
+                        # Further split by comma ("County Name, State Name")
+                        for part in (p.strip() for p in segment.split(",") if p.strip()):
+                            # Strip leading "Counties in " / "in " phrases
+                            clean = re.sub(r"^(?:counties?\s+in\s+|in\s+)", "", part, flags=re.IGNORECASE).strip()
+                            if clean in _US_STATES:
+                                states.add(clean)
+                            elif "county" in clean.lower() or "parish" in clean.lower():
+                                counties.add(clean)
             return sorted(states), sorted(counties)
 
         all_states, all_counties = _parse_locations(df["Locations"])
