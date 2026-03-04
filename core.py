@@ -753,5 +753,11 @@ def build_results_dataframe(match_results):
             'Funding Cycle': funding_cycle,
             'Grant URL': grant_url,
             'Description': (grant.get('overview', '') or '')[:500],
+            'Locations': '; '.join(
+                str(a) for a in (
+                    grant.get('categories', {}).get('geographic_area_category', [])
+                    if isinstance(grant.get('categories', {}), dict) else []
+                ) if a
+            ),
         })
     return pd.DataFrame(rows)
