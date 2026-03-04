@@ -1013,6 +1013,47 @@ with tab_results:
             funders = ["All"] + sorted(df["Funder"].dropna().unique().tolist())
             funder_filter = st.selectbox("Funder", funders)
 
+        # ── Location filters (state & county) ─────────────────────────────────
+        _US_STATES = {
+            "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
+            "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho",
+            "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana",
+            "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota",
+            "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada",
+            "New Hampshire", "New Jersey", "New Mexico", "New York",
+            "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon",
+            "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota",
+            "Tennessee", "Texas", "Utah", "Vermont", "Virginia", "Washington",
+            "West Virginia", "Wisconsin", "Wyoming", "District of Columbia",
+        }
+
+        def _parse_locations(locations_col):
+            """Return sorted (states, counties) lists from the Locations column."""
+            states, counties = set(), set()
+            for cell in locations_col.dropna():
+                for token in (t.strip() for t in cell.split(";") if t.strip()):
+                    if token in _US_STATES:
+                        states.add(token)
+                    elif "county" in token.lower():
+                        counties.add(token)
+            return sorted(states), sorted(counties)
+
+        all_states, all_counties = _parse_locations(df["Locations"])
+
+        loc1, loc2 = st.columns(2)
+        with loc1:
+            state_options = ["All"] + all_states
+            state_filter = st.selectbox("State", state_options)
+        with loc2:
+            # When a specific state is chosen, narrow the county list to that state's data
+            if state_filter != "All":
+                county_source = df[df["Locations"].str.contains(state_filter, case=False, na=False)]["Locations"]
+                _, filtered_counties = _parse_locations(county_source)
+                county_options = ["All"] + filtered_counties
+            else:
+                county_options = ["All"] + all_counties
+            county_filter = st.selectbox("County", county_options)
+
         filtered = df[df["Score"] >= score_min]
         if search_term:
             mask = (
@@ -1022,6 +1063,10 @@ with tab_results:
             filtered = filtered[mask]
         if funder_filter != "All":
             filtered = filtered[filtered["Funder"] == funder_filter]
+        if state_filter != "All":
+            filtered = filtered[filtered["Locations"].str.contains(state_filter, case=False, na=False)]
+        if county_filter != "All":
+            filtered = filtered[filtered["Locations"].str.contains(county_filter, case=False, na=False)]
 
         st.caption(f"Showing {len(filtered)} of {len(df)} results")
 
