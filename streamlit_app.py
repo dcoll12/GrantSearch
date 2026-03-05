@@ -1070,10 +1070,6 @@ with tab_results:
                 county_options = ["All"] + all_counties
             county_filter = st.selectbox("County", county_options)
 
-        with st.expander("🔍 Debug: raw location data (first 10 grants)"):
-            st.dataframe(df[["Grant Name", "Locations"]].head(10), use_container_width=True)
-            st.write("Sample match_results[0] categories:", st.session_state.match_results[0]["metadata"].get("categories") if st.session_state.match_results else "N/A")
-
         filtered = df[df["Score"] >= score_min]
         if search_term:
             mask = (

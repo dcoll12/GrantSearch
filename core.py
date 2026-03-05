@@ -755,7 +755,7 @@ def build_results_dataframe(match_results):
             'Description': (grant.get('overview', '') or '')[:500],
             'Locations': '; '.join(
                 str(a) for a in (
-                    grant.get('categories', {}).get('geographic_area_category', [])
+                    grant.get('categories', {}).get('country_of_residency', [])
                     if isinstance(grant.get('categories', {}), dict) else []
                 ) if a
             ),
