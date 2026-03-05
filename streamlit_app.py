@@ -333,9 +333,15 @@ with tab_docs:
 
         st.divider()
         st.success("✅ Documents ready.")
-        if st.button("🤖 Go to Auto-Save Setup →", type="primary", use_container_width=True):
-            st.session_state.navigate_to_tab = 1
-            st.rerun()
+        if st.session_state.api_connected and st.session_state.grants_data:
+            st.info("Grants already fetched — skip straight to matching.")
+            if st.button("☁️ Go to Fetch Grants →", use_container_width=True):
+                st.session_state.navigate_to_tab = 2
+                st.rerun()
+        else:
+            if st.button("🤖 Go to Auto-Save Setup →", type="primary", use_container_width=True):
+                st.session_state.navigate_to_tab = 1
+                st.rerun()
 
 # ------------------------------------------------------------------------------
 # TAB 2 — AUTO-SAVE SETUP
@@ -969,6 +975,7 @@ with tab_match:
 
     if st.session_state.match_results:
         st.success(f"✅ {len(st.session_state.match_results)} results ready.")
+        st.caption("💡 On the Results tab you can filter by **State** and **County** to narrow grants by location.")
         if st.button("📊 Go to Results Dashboard →", type="primary", use_container_width=True):
             st.session_state.navigate_to_tab = 5
             st.rerun()
