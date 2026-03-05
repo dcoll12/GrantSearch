@@ -333,14 +333,14 @@ with tab_docs:
 
         st.divider()
         st.success("✅ Documents ready.")
-        if st.session_state.api_connected and st.session_state.grants_data:
-            st.info("Grants already fetched — skip straight to matching.")
-            if st.button("☁️ Go to Fetch Grants →", use_container_width=True):
-                st.session_state.navigate_to_tab = 2
-                st.rerun()
-        else:
-            if st.button("🤖 Go to Auto-Save Setup →", type="primary", use_container_width=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("🤖 Go to Auto-Save Setup →", use_container_width=True):
                 st.session_state.navigate_to_tab = 1
+                st.rerun()
+        with col_b:
+            if st.button("☁️ Go to Fetch Grants →", type="primary", use_container_width=True):
+                st.session_state.navigate_to_tab = 2
                 st.rerun()
 
 # ------------------------------------------------------------------------------
