@@ -335,11 +335,11 @@ with tab_docs:
         st.success("✅ Documents ready.")
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("🤖 Go to Auto-Save Setup →", use_container_width=True):
+            if st.button("🤖 Go to Auto-Save Setup →", key="docs_to_autosave", use_container_width=True):
                 st.session_state.navigate_to_tab = 1
                 st.rerun()
         with col_b:
-            if st.button("☁️ Go to Fetch Grants →", type="primary", use_container_width=True):
+            if st.button("☁️ Go to Fetch Grants →", key="docs_to_fetch", type="primary", use_container_width=True):
                 st.session_state.navigate_to_tab = 2
                 st.rerun()
 
