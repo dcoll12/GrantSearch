@@ -1103,7 +1103,7 @@ with tab_results:
         st.dataframe(
             display_df[[
                 "Rank", "Score", "Grant Name", "Funder",
-                "Next Deadline", "Status", "Funding Cycle", "Grant URL", "Description"
+                "Next Deadline", "Status", "Funding Cycle", "Grant URL", "Website URL", "Description"
             ]],
             use_container_width=True,
             hide_index=True,
@@ -1115,7 +1115,8 @@ with tab_results:
                 "Next Deadline": st.column_config.TextColumn(width="medium"),
                 "Status": st.column_config.TextColumn(width="small"),
                 "Funding Cycle": st.column_config.TextColumn(width="small"),
-                "Grant URL": st.column_config.LinkColumn("Link", width="small", display_text="Open ↗"),
+                "Grant URL": st.column_config.LinkColumn("Instrumentl", width="small", display_text="Open ↗"),
+                "Website URL": st.column_config.LinkColumn("Website", width="small", display_text="Open ↗"),
                 "Description": st.column_config.TextColumn(width="large"),
             },
         )

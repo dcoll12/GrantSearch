@@ -740,6 +740,14 @@ def build_results_dataframe(match_results):
         if not grant_url:
             slug = grant.get('slug', '')
             grant_url = f"https://www.instrumentl.com/grants/{slug}" if slug else ''
+        # Extract the grant's own website URL (distinct from the Instrumentl page)
+        funder_obj = grant.get('funder') if isinstance(grant.get('funder'), dict) else {}
+        website_url = (
+            grant.get('website_url') or
+            grant.get('apply_url') or
+            grant.get('url') or
+            funder_obj.get('website_url', '')
+        ) or ''
         rows.append({
             'Rank': rank,
             'Score': round(result['score'], 4),
@@ -752,6 +760,7 @@ def build_results_dataframe(match_results):
             'Rolling': grant.get('rolling', False),
             'Funding Cycle': funding_cycle,
             'Grant URL': grant_url,
+            'Website URL': website_url,
             'Description': (grant.get('overview', '') or '')[:500],
             'Locations': '; '.join(
                 str(a) for a in (
