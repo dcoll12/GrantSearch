@@ -23,6 +23,9 @@ __all__ = [
     "grants_gov_opp_to_grant_format",
     "grant_matches_location",
     "build_results_dataframe",
+    "load_local_grants",
+    "save_local_grant",
+    "remove_local_grant",
 ]
 
 # ==============================================================================
@@ -30,6 +33,7 @@ __all__ = [
 # ==============================================================================
 
 CONFIG_FILE = "config.json"
+SAVED_GRANTS_FILE = "saved_grants.json"
 DEFAULT_CONFIG = {
     "api_key_id": "",
     "api_private_key": "",
@@ -770,3 +774,42 @@ def build_results_dataframe(match_results):
             ),
         })
     return pd.DataFrame(rows)
+
+
+# ==============================================================================
+# LOCAL GRANT SAVING
+# ==============================================================================
+
+def load_local_grants():
+    """Return the list of locally saved grant records from saved_grants.json."""
+    if os.path.exists(SAVED_GRANTS_FILE):
+        try:
+            with open(SAVED_GRANTS_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+
+def save_local_grant(grant_record):
+    """Persist a grant record to saved_grants.json.
+
+    If a record with the same Grant ID already exists it is updated in-place;
+    otherwise the record is appended.
+    """
+    grants = load_local_grants()
+    grant_id = grant_record.get('Grant ID', '')
+    existing_ids = [g.get('Grant ID', '') for g in grants]
+    if grant_id and grant_id in existing_ids:
+        grants[existing_ids.index(grant_id)] = grant_record
+    else:
+        grants.append(grant_record)
+    with open(SAVED_GRANTS_FILE, 'w') as f:
+        json.dump(grants, f, indent=2)
+
+
+def remove_local_grant(grant_id):
+    """Remove a grant from saved_grants.json by Grant ID."""
+    grants = [g for g in load_local_grants() if g.get('Grant ID', '') != grant_id]
+    with open(SAVED_GRANTS_FILE, 'w') as f:
+        json.dump(grants, f, indent=2)
