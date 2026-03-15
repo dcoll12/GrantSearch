@@ -1394,15 +1394,19 @@ with tab_saved:
             if _col not in _saved_df.columns:
                 _saved_df[_col] = ""
 
-        # Show Website URL (the real grant site) as the primary link — not the Instrumentl URL
+        # Build a "Site URL" column: prefer Website URL, fall back to Grant URL
+        _saved_df["Site URL"] = _saved_df["Website URL"].where(
+            _saved_df["Website URL"].str.strip().ne(""), _saved_df["Grant URL"]
+        )
+
         st.dataframe(
-            _saved_df[["Grant Name", "Funder", "Website URL", "Next Deadline", "Status", "Description"]],
+            _saved_df[["Grant Name", "Funder", "Site URL", "Next Deadline", "Status", "Description"]],
             use_container_width=True,
             hide_index=True,
             column_config={
                 "Grant Name": st.column_config.TextColumn(width="large"),
                 "Funder": st.column_config.TextColumn(width="medium"),
-                "Website URL": st.column_config.LinkColumn("Website", width="medium", display_text="View website ↗"),
+                "Site URL": st.column_config.LinkColumn("Site URL", width="medium", display_text="Visit ↗"),
                 "Next Deadline": st.column_config.TextColumn(width="medium"),
                 "Status": st.column_config.TextColumn(width="small"),
                 "Description": st.column_config.TextColumn(width="large"),
@@ -1447,7 +1451,7 @@ with tab_saved:
         st.subheader("Export Saved Grants")
         st.caption("Exported files include the real website link, not the Instrumentl URL — safe to share externally.")
         # Only export the shareable columns (no Instrumentl-internal URLs)
-        _export_cols = ["Grant Name", "Funder", "Website URL", "Next Deadline", "Status", "Description"]
+        _export_cols = ["Grant Name", "Funder", "Site URL", "Next Deadline", "Status", "Description"]
         _export_df = _saved_df[_export_cols]
         _sdl1, _sdl2 = st.columns(2)
         with _sdl1:
