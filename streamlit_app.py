@@ -37,6 +37,7 @@ from core import (
     load_local_grants,
     save_local_grant,
     remove_local_grant,
+    load_website_url_cache,
 )
 
 # ==============================================================================
@@ -587,48 +588,17 @@ with tab_fetch:
         if st.session_state.grants_data:
             st.success(f"📦 {len(st.session_state.grants_data)} grants ready for matching.")
 
-            with st.expander("🔍 Debug: inspect raw API response for first grant"):
-                if st.button("Show raw API fields", key="btn_debug_grant"):
-                    _first = st.session_state.grants_data[0]
-                    _gid = _first.get("id")
-                    try:
-                        _raw = st.session_state.api_client.get_grant(_gid)
-                        st.json(_raw)
-                    except Exception as _e:
-                        st.error(str(_e))
-
-            # Count how many are missing a website URL
-            _missing_url = sum(
-                1 for g in st.session_state.grants_data
-                if not (
-                    g.get('website_url') or g.get('apply_url') or g.get('url') or
-                    (g.get('funder') if isinstance(g.get('funder'), dict) else {}).get('website_url')
-                )
-            )
-            if _missing_url:
-                st.caption(f"⚠️ {_missing_url} grant(s) have no website URL. Click below to fetch them individually.")
-                if st.button("🌐 Enrich Website URLs", use_container_width=True):
-                    _enrich_status = st.status(f"Scraping website URLs for {_missing_url} grants...", expanded=True)
-                    try:
-                        _result = st.session_state.api_client.enrich_website_urls(
-                            st.session_state.grants_data,
-                            callback=lambda msg: _enrich_status.write(msg),
-                        )
-                        _enriched, _spa = _result if isinstance(_result, tuple) else (_result, False)
-                        if _spa:
-                            _enrich_status.update(label="⚠️ Instrumentl pages are client-side rendered — scraping not possible", state="error")
-                            st.warning("The Instrumentl grant pages are rendered by JavaScript, so website URLs can't be scraped this way. The Selenium-based approach is needed for this data.")
-                        else:
-                            _enrich_status.update(
-                                label=f"✅ Found website URLs for {_enriched} grant(s)",
-                                state="complete",
-                            )
-                            st.rerun()
-                    except Exception as _e:
-                        _enrich_status.update(label="Error during enrichment", state="error")
-                        st.error(str(_e))
+            _cache = load_website_url_cache()
+            _cached_count = len(_cache)
+            if _cached_count:
+                st.caption(f"✅ Website URL cache loaded — {_cached_count} grant URL(s) available from last fetch_website_urls.py run.")
             else:
-                st.caption("✅ All grants have website URLs.")
+                st.info(
+                    "💡 **To get real funder website URLs**, run locally after fetching:\n\n"
+                    "```\npython fetch_website_urls.py\n```\n\n"
+                    "It logs into Instrumentl once and collects website URLs for all saved grants. "
+                    "Results are cached in `website_url_cache.json` and picked up automatically here."
+                )
 
             if st.button("🗑️ Clear Grants"):
                 st.session_state.grants_data = []

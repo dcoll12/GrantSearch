@@ -26,6 +26,7 @@ __all__ = [
     "load_local_grants",
     "save_local_grant",
     "remove_local_grant",
+    "load_website_url_cache",
 ]
 
 # ==============================================================================
@@ -34,6 +35,7 @@ __all__ = [
 
 CONFIG_FILE = "config.json"
 SAVED_GRANTS_FILE = "saved_grants.json"
+WEBSITE_URL_CACHE_FILE = "website_url_cache.json"
 DEFAULT_CONFIG = {
     "api_key_id": "",
     "api_private_key": "",
@@ -838,6 +840,7 @@ def grant_matches_location(grant, location_filter):
 def build_results_dataframe(match_results):
     """Convert match results list into a pandas DataFrame for display/export."""
     import pandas as pd
+    _url_cache = load_website_url_cache()
     rows = []
     for rank, result in enumerate(match_results, 1):
         grant = result['metadata']
@@ -850,9 +853,12 @@ def build_results_dataframe(match_results):
         if not grant_url:
             slug = grant.get('slug', '')
             grant_url = f"https://www.instrumentl.com/grants/{slug}" if slug else ''
-        # Extract the grant's own website URL (distinct from the Instrumentl page)
+        # Extract the grant's own website URL — prefer the local cache populated
+        # by fetch_website_urls.py (Selenium), then fall back to API fields.
         funder_obj = grant.get('funder') if isinstance(grant.get('funder'), dict) else {}
+        grant_id_str = str(grant.get('id', ''))
         website_url = (
+            _url_cache.get(grant_id_str) or
             grant.get('website_url') or
             grant.get('apply_url') or
             grant.get('url') or
@@ -885,6 +891,17 @@ def build_results_dataframe(match_results):
 # ==============================================================================
 # LOCAL GRANT SAVING
 # ==============================================================================
+
+def load_website_url_cache():
+    """Return the grant_id → website_url dict from website_url_cache.json."""
+    if os.path.exists(WEBSITE_URL_CACHE_FILE):
+        try:
+            with open(WEBSITE_URL_CACHE_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
 
 def load_local_grants():
     """Return the list of locally saved grant records from saved_grants.json."""
