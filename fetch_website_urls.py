@@ -15,7 +15,8 @@ Browser login credentials — set in a .env file or as environment variables:
     INSTRUMENTL_EMAIL=you@example.com
     INSTRUMENTL_PASSWORD=yourpassword
 
-Resume-safe: already-cached grants are skipped automatically.
+Each run fetches URLs for all grants not already in saved_grants.json.
+Grants the user has saved locally are skipped — their URLs are already stored.
 """
 
 import json
@@ -247,21 +248,25 @@ def main():
 
     print(f"\n✓ {len(all_grants)} grant(s) fetched from API")
 
-    # 2. Load existing cache — skip already-done grants
+    # 2. Load existing cache (still updated/used by the Streamlit app)
     cache = _load_json(CACHE_FILE, {})
+
+    # Skip grants already saved locally — their URLs are already stored.
+    # Re-fetch everything else so new or updated grants always get fresh URLs.
+    saved_ids = {str(g.get("Grant ID", "")) for g in _load_json(SAVED_FILE, [])}
 
     to_process = [
         g for g in all_grants
-        if str(g.get("id", "")) not in cache and g.get("slug")
+        if str(g.get("id", "")) not in saved_ids and g.get("slug")
     ]
 
     if not to_process:
-        print(f"✅ All {len(all_grants)} grant(s) already in cache — nothing to do.")
+        print(f"✅ All {len(all_grants)} grant(s) are already saved locally — nothing to do.")
         _patch_saved_grants(cache)
         return
 
     print(f"📋 {len(to_process)} grant(s) need website URLs "
-          f"({len(all_grants) - len(to_process)} already cached)\n")
+          f"({len(all_grants) - len(to_process)} already saved locally)\n")
 
     # 3. Browser session
     driver = _setup_driver()
