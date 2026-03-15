@@ -37,6 +37,7 @@ from core import (
     load_local_grants,
     save_local_grant,
     remove_local_grant,
+    load_website_url_cache,
 )
 
 # ==============================================================================
@@ -587,6 +588,17 @@ with tab_fetch:
         if st.session_state.grants_data:
             st.success(f"📦 {len(st.session_state.grants_data)} grants ready for matching.")
 
+            _cache = load_website_url_cache()
+            _cached_count = len(_cache)
+            if _cached_count:
+                st.caption(f"✅ Website URL cache loaded — {_cached_count} grant URL(s) available from last fetch_website_urls.py run.")
+            else:
+                st.info(
+                    "💡 **To get real funder website URLs**, run locally after fetching:\n\n"
+                    "```\npython fetch_website_urls.py\n```\n\n"
+                    "It logs into Instrumentl once and collects website URLs for all saved grants. "
+                    "Results are cached in `website_url_cache.json` and picked up automatically here."
+                )
 
             if st.button("🗑️ Clear Grants"):
                 st.session_state.grants_data = []
