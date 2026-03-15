@@ -1344,7 +1344,7 @@ with tab_saved:
                 "Funder":        _find_col(_import_df, "funder", "organization", "org", "grantor"),
                 "Next Deadline": _find_col(_import_df, "deadline", "due date", "close"),
                 "Status":        _find_col(_import_df, "status"),
-                "Website URL":   _find_col(_import_df, "website", "url", "link", "site"),
+                "Website URL":   _find_col(_import_df, "matched url", "matched_url", "website", "url", "link", "site"),
                 "Description":   _find_col(_import_df, "desc", "overview", "summary", "abstract", "notes"),
             }
 
