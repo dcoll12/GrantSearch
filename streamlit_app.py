@@ -586,6 +586,35 @@ with tab_fetch:
 
         if st.session_state.grants_data:
             st.success(f"📦 {len(st.session_state.grants_data)} grants ready for matching.")
+
+            # Count how many are missing a website URL
+            _missing_url = sum(
+                1 for g in st.session_state.grants_data
+                if not (
+                    g.get('website_url') or g.get('apply_url') or g.get('url') or
+                    (g.get('funder') if isinstance(g.get('funder'), dict) else {}).get('website_url')
+                )
+            )
+            if _missing_url:
+                st.caption(f"⚠️ {_missing_url} grant(s) have no website URL. Click below to fetch them individually.")
+                if st.button("🌐 Enrich Website URLs", use_container_width=True):
+                    _enrich_status = st.status(f"Fetching website URLs for {_missing_url} grants...", expanded=True)
+                    try:
+                        _enriched = st.session_state.api_client.enrich_website_urls(
+                            st.session_state.grants_data,
+                            callback=lambda msg: _enrich_status.write(msg),
+                        )
+                        _enrich_status.update(
+                            label=f"✅ Enriched {_enriched} grant(s) with website URLs",
+                            state="complete",
+                        )
+                        st.rerun()
+                    except Exception as _e:
+                        _enrich_status.update(label="Error during enrichment", state="error")
+                        st.error(str(_e))
+            else:
+                st.caption("✅ All grants have website URLs.")
+
             if st.button("🗑️ Clear Grants"):
                 st.session_state.grants_data = []
                 st.rerun()

@@ -495,6 +495,51 @@ class InstrumentlAPI:
             time.sleep(0.25)
         return all_grants
 
+    def enrich_website_urls(self, grants, callback=None):
+        """For each grant that has no website URL, fetch its full record from
+        /v1/grants/{id} and copy the website_url (or apply_url / url) field in.
+
+        Mutates the grant dicts in-place and returns the number enriched.
+        Uses a small delay between requests to avoid rate limiting.
+        """
+        enriched = 0
+        for i, grant in enumerate(grants):
+            # Skip if already has a usable URL
+            funder_obj = grant.get('funder') if isinstance(grant.get('funder'), dict) else {}
+            has_url = (
+                grant.get('website_url') or
+                grant.get('apply_url') or
+                grant.get('url') or
+                funder_obj.get('website_url')
+            )
+            if has_url:
+                continue
+
+            grant_id = grant.get('id')
+            if not grant_id:
+                continue
+
+            if callback:
+                callback(f"Fetching website URL {i + 1}/{len(grants)}: {grant.get('name', grant_id)}")
+
+            try:
+                detail = self.get_grant(grant_id)
+                if detail:
+                    # The individual endpoint may nest the grant under a key
+                    full = detail.get('grant', detail)
+                    for field in ('website_url', 'apply_url', 'url'):
+                        val = full.get(field)
+                        if val:
+                            grant[field] = val
+                            enriched += 1
+                            break
+            except Exception:
+                pass  # don't abort the whole batch for one failure
+
+            time.sleep(0.15)  # gentle rate limiting
+
+        return enriched
+
     def get_all_saved_grants(self, project_id=None, callback=None):
         all_saved = []
         cursor = None
