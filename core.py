@@ -26,6 +26,7 @@ __all__ = [
     "load_local_grants",
     "save_local_grant",
     "remove_local_grant",
+    "clear_local_grants",
     "load_website_url_cache",
 ]
 
@@ -936,3 +937,9 @@ def remove_local_grant(grant_id):
     grants = [g for g in load_local_grants() if g.get('Grant ID', '') != grant_id]
     with open(SAVED_GRANTS_FILE, 'w') as f:
         json.dump(grants, f, indent=2)
+
+
+def clear_local_grants():
+    """Remove all saved grants by writing an empty list to saved_grants.json."""
+    with open(SAVED_GRANTS_FILE, 'w') as f:
+        json.dump([], f, indent=2)
