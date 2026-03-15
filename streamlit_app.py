@@ -587,6 +587,16 @@ with tab_fetch:
         if st.session_state.grants_data:
             st.success(f"📦 {len(st.session_state.grants_data)} grants ready for matching.")
 
+            with st.expander("🔍 Debug: inspect raw API response for first grant"):
+                if st.button("Show raw API fields", key="btn_debug_grant"):
+                    _first = st.session_state.grants_data[0]
+                    _gid = _first.get("id")
+                    try:
+                        _raw = st.session_state.api_client.get_grant(_gid)
+                        st.json(_raw)
+                    except Exception as _e:
+                        st.error(str(_e))
+
             # Count how many are missing a website URL
             _missing_url = sum(
                 1 for g in st.session_state.grants_data
