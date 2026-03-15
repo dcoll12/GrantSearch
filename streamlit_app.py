@@ -610,10 +610,11 @@ with tab_fetch:
                 if st.button("🌐 Enrich Website URLs", use_container_width=True):
                     _enrich_status = st.status(f"Scraping website URLs for {_missing_url} grants...", expanded=True)
                     try:
-                        _enriched, _spa = st.session_state.api_client.enrich_website_urls(
+                        _result = st.session_state.api_client.enrich_website_urls(
                             st.session_state.grants_data,
                             callback=lambda msg: _enrich_status.write(msg),
                         )
+                        _enriched, _spa = _result if isinstance(_result, tuple) else (_result, False)
                         if _spa:
                             _enrich_status.update(label="⚠️ Instrumentl pages are client-side rendered — scraping not possible", state="error")
                             st.warning("The Instrumentl grant pages are rendered by JavaScript, so website URLs can't be scraped this way. The Selenium-based approach is needed for this data.")
