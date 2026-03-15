@@ -37,6 +37,7 @@ from core import (
     load_local_grants,
     save_local_grant,
     remove_local_grant,
+    clear_local_grants,
     load_website_url_cache,
 )
 
@@ -1315,6 +1316,23 @@ with tab_saved:
                     remove_local_grant(str(_row["Grant ID"]))
             st.success(f"Removed {len(_remove_names)} grant(s).")
             st.rerun()
+
+        if st.button("🗑️ Clear All Saved Grants", key="btn_clear_all_saved", type="secondary"):
+            st.session_state["confirm_clear_grants"] = True
+
+        if st.session_state.get("confirm_clear_grants"):
+            st.warning("Are you sure you want to remove all saved grants? This cannot be undone.")
+            _cc1, _cc2 = st.columns(2)
+            with _cc1:
+                if st.button("Yes, clear all", key="btn_confirm_clear_grants", type="primary"):
+                    clear_local_grants()
+                    st.session_state["confirm_clear_grants"] = False
+                    st.success("All saved grants cleared.")
+                    st.rerun()
+            with _cc2:
+                if st.button("Cancel", key="btn_cancel_clear_grants"):
+                    st.session_state["confirm_clear_grants"] = False
+                    st.rerun()
 
         st.divider()
 
