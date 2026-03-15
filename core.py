@@ -495,50 +495,111 @@ class InstrumentlAPI:
             time.sleep(0.25)
         return all_grants
 
-    def enrich_website_urls(self, grants, callback=None):
-        """For each grant that has no website URL, fetch its full record from
-        /v1/grants/{id} and copy the website_url (or apply_url / url) field in.
+    def _scrape_grant_website_url(self, slug):
+        """Fetch the public Instrumentl grant page and extract the funder website URL.
 
-        Mutates the grant dicts in-place and returns the number enriched.
-        Uses a small delay between requests to avoid rate limiting.
+        Tries several patterns found in Instrumentl's HTML:
+          1. <a class="grant-website-url" href="...">
+          2. <a ...>View website</a>
+          3. JSON-LD structured data
+        Returns the URL string or None if not found / page is SPA-only.
         """
-        enriched = 0
-        for i, grant in enumerate(grants):
-            # Skip if already has a usable URL
-            funder_obj = grant.get('funder') if isinstance(grant.get('funder'), dict) else {}
-            has_url = (
-                grant.get('website_url') or
-                grant.get('apply_url') or
-                grant.get('url') or
-                funder_obj.get('website_url')
+        import requests as _requests
+        url = f"https://www.instrumentl.com/grants/{slug}"
+        try:
+            resp = _requests.get(
+                url,
+                timeout=15,
+                headers={
+                    'User-Agent': (
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/120.0.0.0 Safari/537.36'
+                    ),
+                    'Accept': 'text/html,application/xhtml+xml',
+                },
             )
-            if has_url:
-                continue
+            if resp.status_code != 200:
+                return None
+            html = resp.text
 
-            grant_id = grant.get('id')
-            if not grant_id:
-                continue
+            # 1. Direct class match: class="grant-website-url"
+            m = re.search(
+                r'class=["\'][^"\']*grant-website-url[^"\']*["\'][^>]*href=["\']([^"\']+)["\']',
+                html, re.IGNORECASE
+            )
+            if not m:
+                # href before class
+                m = re.search(
+                    r'href=["\']([^"\']+)["\'][^>]*class=["\'][^"\']*grant-website-url[^"\']*["\']',
+                    html, re.IGNORECASE
+                )
+            if m:
+                return m.group(1)
+
+            # 2. Anchor with "View website" text
+            m = re.search(
+                r'<a\s[^>]*href=["\']([^"\']+)["\'][^>]*>\s*View\s+website\s*</a>',
+                html, re.IGNORECASE
+            )
+            if m:
+                return m.group(1)
+
+            # 3. JSON-LD url field
+            m = re.search(r'"url"\s*:\s*"(https?://[^"]+)"', html)
+            if m:
+                candidate = m.group(1)
+                # Exclude self-referential Instrumentl URLs
+                if 'instrumentl.com' not in candidate:
+                    return candidate
+
+        except Exception:
+            pass
+        return None
+
+    def enrich_website_urls(self, grants, callback=None):
+        """For each grant missing a website URL, scrape the public Instrumentl
+        grant page (using the slug) to extract the funder's website URL.
+
+        Mutates grant dicts in-place. Returns (enriched_count, spa_detected).
+        spa_detected is True if the first attempt returned HTML with no usable
+        content, which means Instrumentl is fully client-side rendered and
+        scraping won't work.
+        """
+        to_enrich = [
+            g for g in grants
+            if not (
+                g.get('website_url') or g.get('apply_url') or g.get('url') or
+                (g.get('funder') if isinstance(g.get('funder'), dict) else {}).get('website_url')
+            ) and g.get('slug')
+        ]
+
+        if not to_enrich:
+            return 0, False
+
+        enriched = 0
+        spa_detected = False
+
+        for i, grant in enumerate(to_enrich):
+            slug = grant['slug']
+            name = grant.get('name', slug)
 
             if callback:
-                callback(f"Fetching website URL {i + 1}/{len(grants)}: {grant.get('name', grant_id)}")
+                callback(f"Scraping {i + 1}/{len(to_enrich)}: {name}")
 
-            try:
-                detail = self.get_grant(grant_id)
-                if detail:
-                    # The individual endpoint may nest the grant under a key
-                    full = detail.get('grant', detail)
-                    for field in ('website_url', 'apply_url', 'url'):
-                        val = full.get(field)
-                        if val:
-                            grant[field] = val
-                            enriched += 1
-                            break
-            except Exception:
-                pass  # don't abort the whole batch for one failure
+            found = self._scrape_grant_website_url(slug)
 
-            time.sleep(0.15)  # gentle rate limiting
+            if found:
+                grant['website_url'] = found
+                enriched += 1
+            elif i == 0 and enriched == 0:
+                # First grant returned nothing — likely SPA; no point continuing
+                spa_detected = True
+                break
 
-        return enriched
+            time.sleep(0.3)
+
+        return enriched, spa_detected
 
     def get_all_saved_grants(self, project_id=None, callback=None):
         all_saved = []

@@ -608,17 +608,21 @@ with tab_fetch:
             if _missing_url:
                 st.caption(f"⚠️ {_missing_url} grant(s) have no website URL. Click below to fetch them individually.")
                 if st.button("🌐 Enrich Website URLs", use_container_width=True):
-                    _enrich_status = st.status(f"Fetching website URLs for {_missing_url} grants...", expanded=True)
+                    _enrich_status = st.status(f"Scraping website URLs for {_missing_url} grants...", expanded=True)
                     try:
-                        _enriched = st.session_state.api_client.enrich_website_urls(
+                        _enriched, _spa = st.session_state.api_client.enrich_website_urls(
                             st.session_state.grants_data,
                             callback=lambda msg: _enrich_status.write(msg),
                         )
-                        _enrich_status.update(
-                            label=f"✅ Enriched {_enriched} grant(s) with website URLs",
-                            state="complete",
-                        )
-                        st.rerun()
+                        if _spa:
+                            _enrich_status.update(label="⚠️ Instrumentl pages are client-side rendered — scraping not possible", state="error")
+                            st.warning("The Instrumentl grant pages are rendered by JavaScript, so website URLs can't be scraped this way. The Selenium-based approach is needed for this data.")
+                        else:
+                            _enrich_status.update(
+                                label=f"✅ Found website URLs for {_enriched} grant(s)",
+                                state="complete",
+                            )
+                            st.rerun()
                     except Exception as _e:
                         _enrich_status.update(label="Error during enrichment", state="error")
                         st.error(str(_e))
