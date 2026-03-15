@@ -1253,8 +1253,8 @@ with tab_results:
 with tab_saved:
     st.header("Saved Grants")
     st.caption(
-        "Grants saved here are persisted to `saved_grants.json` on disk. "
-        "Website links are stored directly — no need to re-run matching to revisit them."
+        "Shareable list of saved grants with direct website links — "
+        "no Instrumentl account needed to use these."
     )
 
     _saved_list = load_local_grants()
@@ -1272,19 +1272,17 @@ with tab_saved:
             if _col not in _saved_df.columns:
                 _saved_df[_col] = ""
 
+        # Show Website URL (the real grant site) as the primary link — not the Instrumentl URL
         st.dataframe(
-            _saved_df[["Grant Name", "Funder", "Score", "Next Deadline", "Status", "Grant URL", "Website URL", "Saved At", "Description"]],
+            _saved_df[["Grant Name", "Funder", "Website URL", "Next Deadline", "Status", "Description"]],
             use_container_width=True,
             hide_index=True,
             column_config={
                 "Grant Name": st.column_config.TextColumn(width="large"),
                 "Funder": st.column_config.TextColumn(width="medium"),
-                "Score": st.column_config.NumberColumn(format="%.4f", width="small"),
+                "Website URL": st.column_config.LinkColumn("Website", width="medium", display_text="View website ↗"),
                 "Next Deadline": st.column_config.TextColumn(width="medium"),
                 "Status": st.column_config.TextColumn(width="small"),
-                "Grant URL": st.column_config.LinkColumn("Instrumentl", width="small", display_text="Open ↗"),
-                "Website URL": st.column_config.LinkColumn("Website", width="small", display_text="Open ↗"),
-                "Saved At": st.column_config.TextColumn(width="medium"),
                 "Description": st.column_config.TextColumn(width="large"),
             },
         )
@@ -1308,9 +1306,13 @@ with tab_saved:
 
         # Export saved grants
         st.subheader("Export Saved Grants")
+        st.caption("Exported files include the real website link, not the Instrumentl URL — safe to share externally.")
+        # Only export the shareable columns (no Instrumentl-internal URLs)
+        _export_cols = ["Grant Name", "Funder", "Website URL", "Next Deadline", "Status", "Description"]
+        _export_df = _saved_df[_export_cols]
         _sdl1, _sdl2 = st.columns(2)
         with _sdl1:
-            _saved_csv = _saved_df.to_csv(index=False).encode("utf-8")
+            _saved_csv = _export_df.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="⬇️ Download CSV",
                 data=_saved_csv,
@@ -1321,7 +1323,7 @@ with tab_saved:
         with _sdl2:
             _sbuf = io.BytesIO()
             with pd.ExcelWriter(_sbuf, engine="openpyxl") as _writer:
-                _saved_df.to_excel(_writer, index=False, sheet_name="Saved Grants")
+                _export_df.to_excel(_writer, index=False, sheet_name="Saved Grants")
             st.download_button(
                 label="⬇️ Download Excel",
                 data=_sbuf.getvalue(),
