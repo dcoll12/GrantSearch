@@ -575,6 +575,19 @@ with tab_fetch:
                                 except Exception:
                                     pass
 
+                    # Deduplicate by grant id (same grant may be saved in multiple projects)
+                    _seen_ids = set()
+                    _deduped = []
+                    for g in all_grants:
+                        gid = str(g.get("id", ""))
+                        if gid not in _seen_ids:
+                            _seen_ids.add(gid)
+                            _deduped.append(g)
+                    _dup_count = len(all_grants) - len(_deduped)
+                    if _dup_count:
+                        status_box.write(f"🔁 Removed {_dup_count} duplicate grant(s).")
+                    all_grants = _deduped
+
                     if location_filter != "all":
                         status_box.write("Applying location filter...")
                         all_grants = [g for g in all_grants if grant_matches_location(g, location_filter)]
@@ -588,7 +601,7 @@ with tab_fetch:
                         if _skipped_count:
                             status_box.write(f"⏭️ Skipped {_skipped_count} grant(s) already in your saved list.")
 
-                    # Enrich fetched grants with website URLs stored in saved grants
+                    # Enrich with website URLs from local saved grants (if any stored)
                     _saved_url_map = {
                         str(g.get("Grant ID", "")): g.get("Website URL", "")
                         for g in load_local_grants()
@@ -602,7 +615,18 @@ with tab_fetch:
                                 g["website_url"] = _saved_url_map[gid]
                                 _url_enriched += 1
                         if _url_enriched:
-                            status_box.write(f"🔗 Matched website URLs for {_url_enriched} grant(s) from saved grants.")
+                            status_box.write(f"🔗 Matched {_url_enriched} website URL(s) from saved grants.")
+
+                    # Scrape missing website URLs from Instrumentl public grant pages
+                    status_box.write("🌐 Looking up funder website URLs...")
+                    _enriched_count, _spa = client.enrich_website_urls(
+                        all_grants,
+                        callback=lambda msg: status_box.write(msg),
+                    )
+                    if _spa:
+                        status_box.write("⚠️ Instrumentl pages are client-side rendered — website URL scraping unavailable.")
+                    elif _enriched_count:
+                        status_box.write(f"✅ Found website URLs for {_enriched_count} grant(s).")
 
                     st.session_state.grants_data = all_grants
                     status_box.update(label=f"✅ Fetched {len(all_grants)} grants", state="complete")
