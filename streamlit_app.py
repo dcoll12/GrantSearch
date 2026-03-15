@@ -34,6 +34,9 @@ from core import (
     grants_gov_opp_to_grant_format,
     load_config,
     save_config,
+    load_local_grants,
+    save_local_grant,
+    remove_local_grant,
 )
 
 # ==============================================================================
@@ -157,13 +160,14 @@ st.divider()
 # TABS
 # ==============================================================================
 
-tab_docs, tab_autosave, tab_fetch, tab_gg, tab_match, tab_results = st.tabs([
+tab_docs, tab_autosave, tab_fetch, tab_gg, tab_match, tab_results, tab_saved = st.tabs([
     "📁 1. Upload Documents",
     "🤖 2. Auto-Save Setup",
     "☁️ 3. Fetch Grants",
     "🏛️ 4. Grants.gov Search",
     "🔍 5. Run Matching",
     "📊 6. Results Dashboard",
+    "🔖 7. Saved Grants",
 ])
 
 # ------------------------------------------------------------------------------
@@ -1186,6 +1190,36 @@ with tab_results:
 
         st.divider()
 
+        # ── Save grants locally ────────────────────────────────────────────────
+        st.subheader("Save Grants Locally")
+        st.caption("Saves selected grants — including website links — to `saved_grants.json`. No Instrumentl API required to view them later.")
+
+        _already_saved_ids = {g.get("Grant ID", "") for g in load_local_grants()}
+        _save_options = filtered["Grant Name"].tolist()
+        _save_selected = st.multiselect(
+            "Select grants to save",
+            _save_options,
+            key="results_save_multiselect",
+        )
+        if st.button("💾 Save Selected", disabled=not _save_selected, key="btn_save_selected"):
+            for _name in _save_selected:
+                _row = filtered[filtered["Grant Name"] == _name].iloc[0]
+                save_local_grant({
+                    "Grant ID": str(_row["Grant ID"]),
+                    "Grant Name": _row["Grant Name"],
+                    "Funder": _row["Funder"],
+                    "Score": float(_row["Score"]),
+                    "Next Deadline": _row["Next Deadline"],
+                    "Status": _row["Status"],
+                    "Grant URL": _row["Grant URL"],
+                    "Website URL": _row["Website URL"],
+                    "Description": _row["Description"],
+                    "Saved At": datetime.now().isoformat(),
+                })
+            st.success(f"Saved {len(_save_selected)} grant(s). View them in the **Saved Grants** tab.")
+
+        st.divider()
+
         # ── Export ────────────────────────────────────────────────────────────
         st.subheader("Export Results")
         dl1, dl2 = st.columns(2)
@@ -1208,6 +1242,90 @@ with tab_results:
                 label="⬇️ Download Excel",
                 data=buffer.getvalue(),
                 file_name=f"grant_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+
+# ==============================================================================
+# TAB 7 — SAVED GRANTS
+# ==============================================================================
+
+with tab_saved:
+    st.header("Saved Grants")
+    st.caption(
+        "Grants saved here are persisted to `saved_grants.json` on disk. "
+        "Website links are stored directly — no need to re-run matching to revisit them."
+    )
+
+    _saved_list = load_local_grants()
+
+    if not _saved_list:
+        st.info("No saved grants yet. Go to the **Results Dashboard** tab, select grants from your match results, and click **Save Selected**.")
+    else:
+        _saved_df = pd.DataFrame(_saved_list)
+
+        st.metric("Total Saved", len(_saved_df))
+        st.divider()
+
+        # Ensure all expected columns exist (graceful handling of older records)
+        for _col in ["Grant Name", "Funder", "Score", "Next Deadline", "Status", "Grant URL", "Website URL", "Saved At", "Description"]:
+            if _col not in _saved_df.columns:
+                _saved_df[_col] = ""
+
+        st.dataframe(
+            _saved_df[["Grant Name", "Funder", "Score", "Next Deadline", "Status", "Grant URL", "Website URL", "Saved At", "Description"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Grant Name": st.column_config.TextColumn(width="large"),
+                "Funder": st.column_config.TextColumn(width="medium"),
+                "Score": st.column_config.NumberColumn(format="%.4f", width="small"),
+                "Next Deadline": st.column_config.TextColumn(width="medium"),
+                "Status": st.column_config.TextColumn(width="small"),
+                "Grant URL": st.column_config.LinkColumn("Instrumentl", width="small", display_text="Open ↗"),
+                "Website URL": st.column_config.LinkColumn("Website", width="small", display_text="Open ↗"),
+                "Saved At": st.column_config.TextColumn(width="medium"),
+                "Description": st.column_config.TextColumn(width="large"),
+            },
+        )
+
+        st.divider()
+
+        # Remove grants
+        _remove_names = st.multiselect(
+            "Select grants to remove",
+            _saved_df["Grant Name"].tolist(),
+            key="saved_remove_multiselect",
+        )
+        if st.button("🗑️ Remove Selected", disabled=not _remove_names, key="btn_remove_saved"):
+            for _name in _remove_names:
+                for _, _row in _saved_df[_saved_df["Grant Name"] == _name].iterrows():
+                    remove_local_grant(str(_row["Grant ID"]))
+            st.success(f"Removed {len(_remove_names)} grant(s).")
+            st.rerun()
+
+        st.divider()
+
+        # Export saved grants
+        st.subheader("Export Saved Grants")
+        _sdl1, _sdl2 = st.columns(2)
+        with _sdl1:
+            _saved_csv = _saved_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="⬇️ Download CSV",
+                data=_saved_csv,
+                file_name=f"saved_grants_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with _sdl2:
+            _sbuf = io.BytesIO()
+            with pd.ExcelWriter(_sbuf, engine="openpyxl") as _writer:
+                _saved_df.to_excel(_writer, index=False, sheet_name="Saved Grants")
+            st.download_button(
+                label="⬇️ Download Excel",
+                data=_sbuf.getvalue(),
+                file_name=f"saved_grants_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
