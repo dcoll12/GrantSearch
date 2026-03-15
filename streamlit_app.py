@@ -150,6 +150,13 @@ with st.sidebar:
         st.session_state.match_results = []
         st.rerun()
 
+    st.divider()
+    st.link_button(
+        "📋 Open Grant Tracking Sheet",
+        "https://docs.google.com/spreadsheets/d/1HGmlZoCiQvRb7CTHqh-ZjqcTTQ_nmGXdogqyYp7mQi8/edit?gid=969887567#gid=969887567",
+        use_container_width=True,
+    )
+
 # ==============================================================================
 # MAIN HEADER
 # ==============================================================================
