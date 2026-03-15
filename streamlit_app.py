@@ -579,6 +579,15 @@ with tab_fetch:
                         status_box.write("Applying location filter...")
                         all_grants = [g for g in all_grants if grant_matches_location(g, location_filter)]
 
+                    # Skip grants already in the local saved grants list
+                    _saved_local_ids = {g.get("Grant ID", "") for g in load_local_grants()}
+                    if _saved_local_ids:
+                        _before_dedup = len(all_grants)
+                        all_grants = [g for g in all_grants if str(g.get("id", "")) not in _saved_local_ids]
+                        _skipped_count = _before_dedup - len(all_grants)
+                        if _skipped_count:
+                            status_box.write(f"⏭️ Skipped {_skipped_count} grant(s) already in your saved list.")
+
                     st.session_state.grants_data = all_grants
                     status_box.update(label=f"✅ Fetched {len(all_grants)} grants", state="complete")
 
@@ -942,6 +951,14 @@ with tab_match:
             "0.02–0.05 = moderate · 0.01–0.02 = weak · <0.01 = very weak"
         )
 
+        _saved_for_match = load_local_grants()
+        include_saved_in_match = st.checkbox(
+            f"Include saved grants in matching pool ({len(_saved_for_match)} grant(s))",
+            value=bool(_saved_for_match),
+            help="Adds grants from your Saved Grants list to the matching pool. Useful when you've uploaded a master file.",
+            disabled=not _saved_for_match,
+        )
+
         if st.button("🚀 Run Matching", type="primary", use_container_width=True):
             with st.status("Running matching algorithm...", expanded=True) as status:
                 try:
@@ -959,11 +976,34 @@ with tab_match:
                     combined_text = " ".join(doc_chunks)
 
                     # Build grant index
-                    st.write(f"Building index for {len(st.session_state.grants_data)} grants...")
+                    # Merge fetched grants with saved grants (if opted in)
+                    _grants_pool = list(st.session_state.grants_data)
+                    if include_saved_in_match and _saved_for_match:
+                        _fetched_ids = {str(g.get("id", "")) for g in _grants_pool}
+                        _added_from_saved = 0
+                        for _sg in _saved_for_match:
+                            _sg_id = str(_sg.get("Grant ID", ""))
+                            if _sg_id not in _fetched_ids:
+                                # Convert saved grant format → API-like format for matcher
+                                _grants_pool.append({
+                                    "id": _sg_id,
+                                    "name": _sg.get("Grant Name", ""),
+                                    "overview": _sg.get("Description", ""),
+                                    "funder": _sg.get("Funder", ""),
+                                    "categories": {},
+                                    "_from_saved": True,
+                                    "_saved_grant_info": _sg,
+                                })
+                                _fetched_ids.add(_sg_id)
+                                _added_from_saved += 1
+                        if _added_from_saved:
+                            st.write(f"Added {_added_from_saved} saved grant(s) to matching pool.")
+
+                    st.write(f"Building index for {len(_grants_pool)} grants...")
                     matcher = TFIDFMatcher()
                     grant_texts = []
                     grant_metas = []
-                    for grant in st.session_state.grants_data:
+                    for grant in _grants_pool:
                         parts = [grant.get("name", ""), grant.get("overview", "")]
                         funder = grant.get("funder", "")
                         parts.append(funder.get("name", "") if isinstance(funder, dict) else str(funder))
@@ -1272,10 +1312,77 @@ with tab_saved:
         "no Instrumentl account needed to use these."
     )
 
+    # ── Import from master file ────────────────────────────────────────────────
+    st.subheader("Import from Master File")
+    st.caption("Upload a CSV or Excel file to bulk-import grants into your saved list.")
+    _master_file = st.file_uploader(
+        "Choose a CSV or Excel file",
+        type=["csv", "xlsx", "xls"],
+        key="saved_grants_uploader",
+    )
+    if _master_file:
+        try:
+            if _master_file.name.lower().endswith(".csv"):
+                _import_df = pd.read_csv(_master_file)
+            else:
+                _import_df = pd.read_excel(_master_file)
+
+            st.write(f"Preview ({len(_import_df)} rows, {len(_import_df.columns)} columns):")
+            st.dataframe(_import_df.head(5), use_container_width=True)
+
+            # Auto-detect column mapping by fuzzy name matching
+            def _find_col(df, *keywords):
+                for kw in keywords:
+                    for col in df.columns:
+                        if kw in col.lower():
+                            return col
+                return None
+
+            _col_map = {
+                "Grant ID":      _find_col(_import_df, "id", "grant id", "grantid"),
+                "Grant Name":    _find_col(_import_df, "name", "title", "grant name"),
+                "Funder":        _find_col(_import_df, "funder", "organization", "org", "grantor"),
+                "Next Deadline": _find_col(_import_df, "deadline", "due date", "close"),
+                "Status":        _find_col(_import_df, "status"),
+                "Website URL":   _find_col(_import_df, "website", "url", "link", "site"),
+                "Description":   _find_col(_import_df, "desc", "overview", "summary", "abstract", "notes"),
+            }
+
+            with st.expander("Column mapping (auto-detected — adjust if needed)"):
+                all_cols = ["(none)"] + list(_import_df.columns)
+                for field in list(_col_map.keys()):
+                    detected = _col_map[field] or "(none)"
+                    chosen = st.selectbox(field, all_cols, index=all_cols.index(detected), key=f"colmap_{field}")
+                    _col_map[field] = None if chosen == "(none)" else chosen
+
+            if st.button("📥 Import Grants", type="primary", key="btn_import_master"):
+                _already_ids = {g.get("Grant ID", "") for g in load_local_grants()}
+                _imported, _updated, _skipped = 0, 0, 0
+                for _idx, _row in _import_df.iterrows():
+                    _record = {"Saved At": datetime.now().isoformat()}
+                    for _field, _col in _col_map.items():
+                        _record[_field] = str(_row[_col]) if (_col and _col in _row and pd.notna(_row[_col])) else ""
+                    if not _record.get("Grant ID"):
+                        _record["Grant ID"] = f"imported_{_idx}"
+                    if _record["Grant ID"] in _already_ids:
+                        _updated += 1
+                    else:
+                        _imported += 1
+                    save_local_grant(_record)
+                msg = f"Import complete: {_imported} new grant(s) added."
+                if _updated:
+                    msg += f" {_updated} existing grant(s) updated."
+                st.success(msg)
+                st.rerun()
+        except Exception as _e:
+            st.error(f"Error reading file: {_e}")
+
+    st.divider()
+
     _saved_list = load_local_grants()
 
     if not _saved_list:
-        st.info("No saved grants yet. Go to the **Results Dashboard** tab, select grants from your match results, and click **Save Selected**.")
+        st.info("No saved grants yet. Upload a master file above, or go to the **Results Dashboard** tab, select grants from your match results, and click **Save Selected**.")
     else:
         _saved_df = pd.DataFrame(_saved_list)
 
