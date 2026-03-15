@@ -601,14 +601,7 @@ with tab_fetch:
             _cache = load_website_url_cache()
             _cached_count = len(_cache)
             if _cached_count:
-                st.caption(f"✅ Website URL cache loaded — {_cached_count} grant URL(s) available from last fetch_website_urls.py run.")
-            else:
-                st.info(
-                    "💡 **To get real funder website URLs**, run locally after fetching:\n\n"
-                    "```\npython fetch_website_urls.py\n```\n\n"
-                    "It logs into Instrumentl once and collects website URLs for all saved grants. "
-                    "Results are cached in `website_url_cache.json` and picked up automatically here."
-                )
+                st.caption(f"✅ Website URL cache loaded — {_cached_count} grant URL(s) available.")
 
             if st.button("🗑️ Clear Grants"):
                 st.session_state.grants_data = []

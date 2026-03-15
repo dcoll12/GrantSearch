@@ -842,6 +842,12 @@ def build_results_dataframe(match_results):
     """Convert match results list into a pandas DataFrame for display/export."""
     import pandas as pd
     _url_cache = load_website_url_cache()
+    # Build a lookup of website URLs from saved grants (Grant ID → Website URL)
+    _saved_grants_urls = {
+        str(g.get('Grant ID', '')): g.get('Website URL', '')
+        for g in load_local_grants()
+        if g.get('Website URL', '').strip()
+    }
     rows = []
     for rank, result in enumerate(match_results, 1):
         grant = result['metadata']
@@ -854,12 +860,13 @@ def build_results_dataframe(match_results):
         if not grant_url:
             slug = grant.get('slug', '')
             grant_url = f"https://www.instrumentl.com/grants/{slug}" if slug else ''
-        # Extract the grant's own website URL — prefer the local cache populated
-        # by fetch_website_urls.py (Selenium), then fall back to API fields.
+        # Extract the grant's own website URL — prefer the local cache, then saved
+        # grants (which may have a URL from a previous save), then API fields.
         funder_obj = grant.get('funder') if isinstance(grant.get('funder'), dict) else {}
         grant_id_str = str(grant.get('id', ''))
         website_url = (
             _url_cache.get(grant_id_str) or
+            _saved_grants_urls.get(grant_id_str) or
             grant.get('website_url') or
             grant.get('apply_url') or
             grant.get('url') or
