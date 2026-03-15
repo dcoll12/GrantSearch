@@ -576,8 +576,10 @@ with tab_fetch:
                                 try:
                                     detail = client.get_grant(grant_id)
                                     if detail:
-                                        detail["_saved_grant_info"] = s
-                                        all_grants.append(detail)
+                                        # The individual endpoint may nest the grant under a key
+                                        grant_obj = detail.get('grant', detail)
+                                        grant_obj["_saved_grant_info"] = s
+                                        all_grants.append(grant_obj)
                                     time.sleep(0.2)
                                 except Exception:
                                     pass
@@ -1030,6 +1032,8 @@ with tab_match:
                                     "name": _sg.get("Grant Name", ""),
                                     "overview": _sg.get("Description", ""),
                                     "funder": _sg.get("Funder", ""),
+                                    "next_deadline_date": _sg.get("Next Deadline", ""),
+                                    "status": _sg.get("Status", ""),
                                     "categories": {},
                                     "_from_saved": True,
                                     "_saved_grant_info": _sg,
@@ -1380,7 +1384,7 @@ with tab_saved:
 
             _col_map = {
                 "Grant ID":      _find_col(_import_df, "id", "grant id", "grantid"),
-                "Grant Name":    _find_col(_import_df, "name", "title", "grant name"),
+                "Grant Name":    _find_col(_import_df, "grant name", "grant title", "opportunity name", "opportunity title", "title", "name"),
                 "Funder":        _find_col(_import_df, "funder", "organization", "org", "grantor"),
                 "Next Deadline": _find_col(_import_df, "deadline", "due date", "close"),
                 "Status":        _find_col(_import_df, "status"),
