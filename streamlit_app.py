@@ -588,6 +588,22 @@ with tab_fetch:
                         if _skipped_count:
                             status_box.write(f"⏭️ Skipped {_skipped_count} grant(s) already in your saved list.")
 
+                    # Enrich fetched grants with website URLs stored in saved grants
+                    _saved_url_map = {
+                        str(g.get("Grant ID", "")): g.get("Website URL", "")
+                        for g in load_local_grants()
+                        if g.get("Website URL", "").strip()
+                    }
+                    if _saved_url_map:
+                        _url_enriched = 0
+                        for g in all_grants:
+                            gid = str(g.get("id", ""))
+                            if gid in _saved_url_map and not g.get("website_url"):
+                                g["website_url"] = _saved_url_map[gid]
+                                _url_enriched += 1
+                        if _url_enriched:
+                            status_box.write(f"🔗 Matched website URLs for {_url_enriched} grant(s) from saved grants.")
+
                     st.session_state.grants_data = all_grants
                     status_box.update(label=f"✅ Fetched {len(all_grants)} grants", state="complete")
 
