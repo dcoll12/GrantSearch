@@ -1020,8 +1020,22 @@ with tab_match:
                     # Build grant index
                     # Merge fetched grants with saved grants (if opted in)
                     _grants_pool = list(st.session_state.grants_data)
+
+                    # Deduplicate grants_data by ID before building the pool
+                    _pool_seen_ids: dict = {}
+                    _deduped_pool = []
+                    for _g in _grants_pool:
+                        _gid = str(_g.get("id", ""))
+                        if _gid not in _pool_seen_ids:
+                            _pool_seen_ids[_gid] = True
+                            _deduped_pool.append(_g)
+                    _pool_dup_count = len(_grants_pool) - len(_deduped_pool)
+                    if _pool_dup_count:
+                        st.write(f"🔁 Removed {_pool_dup_count} duplicate grant(s) from matching pool.")
+                    _grants_pool = _deduped_pool
+
                     if include_saved_in_match and _saved_for_match:
-                        _fetched_ids = {str(g.get("id", "")) for g in _grants_pool}
+                        _fetched_ids = set(_pool_seen_ids.keys())
                         _added_from_saved = 0
                         for _sg in _saved_for_match:
                             _sg_id = str(_sg.get("Grant ID", ""))
@@ -1068,6 +1082,16 @@ with tab_match:
                     st.write("Finding matches...")
                     actual_top_k = int(top_matches) if top_matches > 0 else len(grant_metas)
                     matches = matcher.find_matches(combined_text, top_k=actual_top_k, min_score=float(min_score))
+
+                    # Deduplicate results by grant ID (keep highest-scored occurrence)
+                    _seen_result_ids: dict = {}
+                    _deduped_matches = []
+                    for _m in matches:
+                        _m_id = str(_m['metadata'].get('id', ''))
+                        if _m_id not in _seen_result_ids:
+                            _seen_result_ids[_m_id] = True
+                            _deduped_matches.append(_m)
+                    matches = _deduped_matches
 
                     st.session_state.match_results = matches
                     status.update(label=f"✅ Found {len(matches)} matches", state="complete")
