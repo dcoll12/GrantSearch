@@ -564,51 +564,45 @@ with tab_fetch:
                 try:
                     client = st.session_state.api_client
 
+                    # Load locally saved grant IDs upfront so we can skip them during fetch
+                    _saved_local_ids = {str(g.get("Grant ID", "")) for g in load_local_grants()}
+
                     if fetch_saved:
                         status_box.write("Fetching saved grants...")
                         saved = client.get_all_saved_grants(
                             project_id=selected_project_id,
                             callback=lambda msg: status_box.write(msg),
                         )
+                        _skipped_count = 0
+                        _seen_ids = set()
                         for s in saved:
-                            grant_id = s.get("grant_id")
-                            if grant_id:
-                                try:
-                                    detail = client.get_grant(grant_id)
-                                    if detail:
-                                        # The individual endpoint may nest the grant under a key
-                                        grant_obj = detail.get('grant', detail)
-                                        grant_obj["_saved_grant_info"] = s
-                                        all_grants.append(grant_obj)
-                                    time.sleep(0.2)
-                                except Exception:
-                                    pass
-
-                    # Deduplicate by grant id (same grant may be saved in multiple projects)
-                    _seen_ids = set()
-                    _deduped = []
-                    for g in all_grants:
-                        gid = str(g.get("id", ""))
-                        if gid not in _seen_ids:
-                            _seen_ids.add(gid)
-                            _deduped.append(g)
-                    _dup_count = len(all_grants) - len(_deduped)
-                    if _dup_count:
-                        status_box.write(f"🔁 Removed {_dup_count} duplicate grant(s).")
-                    all_grants = _deduped
+                            grant_id = str(s.get("grant_id", ""))
+                            if not grant_id:
+                                continue
+                            # Skip grants already in local saved list — no need to re-fetch
+                            if grant_id in _saved_local_ids:
+                                _skipped_count += 1
+                                continue
+                            # Skip duplicates within this fetch batch
+                            if grant_id in _seen_ids:
+                                continue
+                            _seen_ids.add(grant_id)
+                            try:
+                                detail = client.get_grant(grant_id)
+                                if detail:
+                                    # The individual endpoint may nest the grant under a key
+                                    grant_obj = detail.get('grant', detail)
+                                    grant_obj["_saved_grant_info"] = s
+                                    all_grants.append(grant_obj)
+                                time.sleep(0.2)
+                            except Exception:
+                                pass
+                        if _skipped_count:
+                            status_box.write(f"⏭️ Skipped {_skipped_count} grant(s) already in your saved list.")
 
                     if location_filter != "all":
                         status_box.write("Applying location filter...")
                         all_grants = [g for g in all_grants if grant_matches_location(g, location_filter)]
-
-                    # Skip grants already in the local saved grants list
-                    _saved_local_ids = {g.get("Grant ID", "") for g in load_local_grants()}
-                    if _saved_local_ids:
-                        _before_dedup = len(all_grants)
-                        all_grants = [g for g in all_grants if str(g.get("id", "")) not in _saved_local_ids]
-                        _skipped_count = _before_dedup - len(all_grants)
-                        if _skipped_count:
-                            status_box.write(f"⏭️ Skipped {_skipped_count} grant(s) already in your saved list.")
 
                     # Enrich with website URLs from local saved grants (if any stored)
                     _saved_url_map = {
